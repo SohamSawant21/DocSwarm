@@ -24,14 +24,17 @@ app.add_middleware(
 
 def parse_js_ts(file_content: str):
     imports = []
-    # match `import { X } from './path'` or `import X from "path"`
-    import_pattern = re.compile(r'import\s+.*?\s+from\s+[\'"](.*?)[\'"]', re.MULTILINE | re.DOTALL)
-    require_pattern = re.compile(r'require\([\'"](.*?)[\'"]\)', re.MULTILINE)
+    # Capture standard imports and re-exports (import/export ... from "...")
+    import_pattern = re.compile(r'(?:import|export)\s+.*?\s+from\s+[\'"](.*?)[\'"]', re.MULTILINE | re.DOTALL)
+    
+    # Capture CommonJS require() and Next.js dynamic import()
+    dynamic_pattern = re.compile(r'(?:require|import)\([\'"](.*?)[\'"]\)', re.MULTILINE)
     
     for match in import_pattern.findall(file_content):
         imports.append(match)
-    for match in require_pattern.findall(file_content):
+    for match in dynamic_pattern.findall(file_content):
         imports.append(match)
+        
     return imports
 
 def parse_python(file_content: str):
@@ -93,12 +96,25 @@ def analyze_directory(extract_dir: str):
                 
                 G.add_node(node_id, label=file, type="customNode", icon=icon)
 
-    # Build edges
+# Build edges
     for node_id, data in files_data.items():
         for imp in data["imports"]:
-            imp_base = imp.split('/')[-1]
+            # Clean up Next.js aliases and relative path operators 
+            # e.g., '@/components/TopAppBar' -> 'components/TopAppBar'
+            clean_imp = re.sub(r'^(\./|\.\./|@/)+', '', imp)
+            
             for target_id, target_data in files_data.items():
-                if target_data["label"].startswith(imp_base):
+                # Remove the file extension from the target node for clean comparison
+                target_id_no_ext = os.path.splitext(target_id)[0]
+                
+                # Match if the target path securely ends with the imported path
+                # Condition 1: Exact path suffix (e.g., .../components/TopAppBar)
+                # Condition 2: Exact match at root
+                # Condition 3: React barrel file resolution (e.g., .../components/index)
+                if target_id_no_ext.endswith(f"/{clean_imp}") or \
+                   target_id_no_ext == clean_imp or \
+                   target_id_no_ext.endswith(f"/{clean_imp}/index"):
+                    
                     G.add_edge(node_id, target_id)
                     break
     
