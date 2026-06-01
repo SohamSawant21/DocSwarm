@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import {
   ReactFlow,
   Background,
+  Handle,
+  Position,
   useNodesState,
   useEdgesState,
 } from "@xyflow/react";
@@ -11,7 +13,13 @@ import "@xyflow/react/dist/style.css";
 
 function CustomNode({ data }: { data: any }) {
   return (
-    <div className="flex flex-col items-center gap-2 cursor-pointer group">
+    <>
+      <Handle
+        type="target"
+        position={Position.Left}
+      />
+
+      <div className="flex flex-col items-center gap-2 cursor-pointer group">
       <div
         className={`w-12 h-12 rounded-full flex items-center justify-center border shadow-sm transition-transform hover:scale-105 ${
           data.highlight
@@ -37,6 +45,11 @@ function CustomNode({ data }: { data: any }) {
         {data.label}
       </span>
     </div>
+    <Handle
+        type="source"
+        position={Position.Right}
+      />
+    </>
   );
 }
 
