@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import dagre from "dagre";
 import {
   ReactFlow,
   Background,
@@ -14,41 +15,35 @@ import "@xyflow/react/dist/style.css";
 function CustomNode({ data }: { data: any }) {
   return (
     <>
-      <Handle
-        type="target"
-        position={Position.Left}
-      />
+      <Handle type="target" position={Position.Left} />
 
       <div className="flex flex-col items-center gap-2 cursor-pointer group">
-      <div
-        className={`w-12 h-12 rounded-full flex items-center justify-center border shadow-sm transition-transform hover:scale-105 ${
-          data.highlight
-            ? "bg-primary-fixed border-primary shadow-[0_4px_24px_rgba(29,78,216,0.15)] ring-4 ring-primary-fixed-dim ring-opacity-20"
-            : "bg-surface-container border-outline-variant group-hover:border-primary"
-        }`}
-      >
-        <span
-          className={`material-symbols-outlined text-[24px] ${
-            data.highlight ? "text-on-primary-fixed" : "text-on-surface"
+        <div
+          className={`w-12 h-12 rounded-full flex items-center justify-center border shadow-sm transition-transform hover:scale-105 ${
+            data.highlight
+              ? "bg-primary-fixed border-primary shadow-[0_4px_24px_rgba(29,78,216,0.15)] ring-4 ring-primary-fixed-dim ring-opacity-20"
+              : "bg-surface-container border-outline-variant group-hover:border-primary"
           }`}
         >
-          {data.icon}
+          <span
+            className={`material-symbols-outlined text-[24px] ${
+              data.highlight ? "text-on-primary-fixed" : "text-on-surface"
+            }`}
+          >
+            {data.icon}
+          </span>
+        </div>
+        <span
+          className={`font-ui-label text-ui-label ${
+            data.highlight
+              ? "text-on-surface font-semibold bg-surface-bright px-2 py-1 rounded"
+              : "text-on-surface-variant group-hover:text-on-surface"
+          }`}
+        >
+          {data.label}
         </span>
       </div>
-      <span
-        className={`font-ui-label text-ui-label ${
-          data.highlight
-            ? "text-on-surface font-semibold bg-surface-bright px-2 py-1 rounded"
-            : "text-on-surface-variant group-hover:text-on-surface"
-        }`}
-      >
-        {data.label}
-      </span>
-    </div>
-    <Handle
-        type="source"
-        position={Position.Right}
-      />
+      <Handle type="source" position={Position.Right} />
     </>
   );
 }
@@ -57,15 +52,60 @@ const nodeTypes = {
   customNode: CustomNode,
 };
 
+// --- DAGRE LAYOUT ENGINE SETUP ---
+const dagreGraph = new dagre.graphlib.Graph();
+dagreGraph.setDefaultEdgeLabel(() => ({}));
+
+const getLayoutedElements = (nodes: any[], edges: any[], direction = "LR") => {
+  dagreGraph.setGraph({ rankdir: direction });
+
+  nodes.forEach((node) => {
+    // Setting dimensions based on your custom node to ensure proper spacing
+    dagreGraph.setNode(node.id, { width: 150, height: 80 });
+  });
+
+  edges.forEach((edge) => {
+    dagreGraph.setEdge(edge.source, edge.target);
+  });
+
+  dagre.layout(dagreGraph);
+
+  const newNodes = nodes.map((node) => {
+    const nodeWithPosition = dagreGraph.node(node.id);
+    return {
+      ...node,
+      targetPosition: "left",
+      sourcePosition: "right",
+      position: {
+        x: nodeWithPosition.x - 75, // Center offset (width / 2)
+        y: nodeWithPosition.y - 40, // Center offset (height / 2)
+      },
+    };
+  });
+
+  return { nodes: newNodes, edges };
+};
+// ---------------------------------
+
 export function GraphCanvas({ data }: { data: any }) {
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<any>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<any>([]);
   const [selectedNode, setSelectedNode] = useState<any>(null);
 
   useEffect(() => {
     if (data && data.graph) {
-      setNodes(data.graph.nodes || []);
-      setEdges(data.graph.edges || []);
+      const rawNodes = data.graph.nodes || [];
+      const rawEdges = data.graph.edges || [];
+
+      // Calculate layout before setting state
+      const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
+        rawNodes,
+        rawEdges,
+        "LR" // Left-to-Right flow. Change to "TB" for Top-to-Bottom.
+      );
+
+      setNodes(layoutedNodes);
+      setEdges(layoutedEdges);
     }
   }, [data, setNodes, setEdges]);
 
@@ -80,7 +120,9 @@ export function GraphCanvas({ data }: { data: any }) {
     <div className="flex-1 flex flex-col bg-surface relative overflow-hidden">
       <div className="p-lg flex justify-between items-center z-10 relative pointer-events-none">
         <div className="pointer-events-auto">
-          <h1 className="font-h1 text-h1 text-on-surface">System Architecture Map</h1>
+          <h1 className="font-h1 text-h1 text-on-surface">
+            System Architecture Map
+          </h1>
           <p className="font-body-md text-body-md text-on-surface-variant mt-1">
             Exploring dependencies for current context.
           </p>
@@ -117,18 +159,22 @@ export function GraphCanvas({ data }: { data: any }) {
                 className="text-on-surface-variant hover:text-on-surface"
                 onClick={() => setSelectedNode(null)}
               >
-                <span className="material-symbols-outlined text-[18px]">close</span>
+                <span className="material-symbols-outlined text-[18px]">
+                  close
+                </span>
               </button>
             </div>
             <div className="p-4 flex-1 overflow-y-auto">
               <div className="mb-6">
                 {selectedNode.content ? (
-                   <pre className="text-xs overflow-x-auto text-outline font-code bg-surface p-2 rounded border border-surface-variant">
-                     {selectedNode.content.substring(0, 500)}
-                     {selectedNode.content.length > 500 && "..."}
-                   </pre>
+                  <pre className="text-xs overflow-x-auto text-outline font-code bg-surface p-2 rounded border border-surface-variant">
+                    {selectedNode.content.substring(0, 500)}
+                    {selectedNode.content.length > 500 && "..."}
+                  </pre>
                 ) : (
-                  <p className="font-body-md text-body-md text-on-surface-variant">No content available.</p>
+                  <p className="font-body-md text-body-md text-on-surface-variant">
+                    No content available.
+                  </p>
                 )}
               </div>
               <div className="space-y-4">
@@ -139,12 +185,17 @@ export function GraphCanvas({ data }: { data: any }) {
                   <div className="flex flex-wrap gap-2">
                     {selectedNode.imports?.length > 0 ? (
                       selectedNode.imports.map((imp: string, i: number) => (
-                        <span key={i} className="bg-surface-container px-2 py-1 rounded text-xs font-code text-on-surface-variant truncate max-w-full">
+                        <span
+                          key={i}
+                          className="bg-surface-container px-2 py-1 rounded text-xs font-code text-on-surface-variant truncate max-w-full"
+                        >
                           {imp}
                         </span>
                       ))
                     ) : (
-                      <span className="text-xs text-on-surface-variant">None detected</span>
+                      <span className="text-xs text-on-surface-variant">
+                        None detected
+                      </span>
                     )}
                   </div>
                 </div>
