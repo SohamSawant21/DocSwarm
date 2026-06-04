@@ -2,11 +2,94 @@ import os
 import zipfile
 import tempfile
 import re
+import asyncio
 import networkx as nx
-from fastapi import FastAPI, UploadFile, File
+import numpy as np
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+from dotenv import load_dotenv
+from google import genai
+from google.genai import types
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
+# Load environment variables
+load_dotenv()
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# Initialize Gemini Client
+client = None
+if GEMINI_API_KEY:
+    client = genai.Client(api_key=GEMINI_API_KEY)
+
+# --- RAG UTILITIES ---
+
+class CodeChunk:
+    def __init__(self, file_path: str, content: str, start_line: int, end_line: int):
+        self.file_path = file_path
+        self.content = content
+        self.start_line = start_line
+        self.end_line = end_line
+
+class LocalSearchIndex:
+    def __init__(self):
+        self.chunks: List[CodeChunk] = []
+        self.vectorizer = TfidfVectorizer(stop_words='english', lowercase=True)
+        self.tfidf_matrix = None
+
+    def add_chunks(self, chunks: List[CodeChunk]):
+        self.chunks = chunks
+        if not chunks:
+            return
+        
+        # Combine file path and content for better context matching
+        corpus = [f"FILE: {c.file_path}\n{c.content}" for c in chunks]
+        self.tfidf_matrix = self.vectorizer.fit_transform(corpus)
+
+    def search(self, query: str, top_k: int = 5) -> List[CodeChunk]:
+        if not self.chunks or self.tfidf_matrix is None:
+            return []
+        
+        query_vec = self.vectorizer.transform([query])
+        similarities = cosine_similarity(query_vec, self.tfidf_matrix).flatten()
+        
+        # Get top indices
+        top_indices = similarities.argsort()[-top_k:][::-1]
+        
+        # Return chunks with similarity > 0
+        results = []
+        for idx in top_indices:
+            if similarities[idx] > 0:
+                results.append(self.chunks[idx])
+        return results
+
+def chunk_file(file_path: str, content: str, chunk_size: int = 50, overlap: int = 10) -> List[CodeChunk]:
+    lines = content.splitlines()
+    chunks = []
+    
+    if len(lines) <= chunk_size:
+        chunks.append(CodeChunk(file_path, content, 1, len(lines)))
+        return chunks
+
+    start = 0
+    while start < len(lines):
+        end = min(start + chunk_size, len(lines))
+        chunk_content = "\n".join(lines[start:end])
+        chunks.append(CodeChunk(file_path, chunk_content, start + 1, end))
+        start += (chunk_size - overlap)
+        
+    return chunks
+
+# In-memory storage for the latest uploaded repository context
+repo_context = {
+    "files": {},
+    "graph": None,
+    "search_index": LocalSearchIndex()
+}
 
 class ChatRequest(BaseModel):
     message: str
@@ -24,10 +107,7 @@ app.add_middleware(
 
 def parse_js_ts(file_content: str):
     imports = []
-    # Capture standard imports and re-exports (import/export ... from "...")
     import_pattern = re.compile(r'(?:import|export)\s+.*?\s+from\s+[\'"](.*?)[\'"]', re.MULTILINE | re.DOTALL)
-    
-    # Capture CommonJS require() and Next.js dynamic import()
     dynamic_pattern = re.compile(r'(?:require|import)\([\'"](.*?)[\'"]\)', re.MULTILINE)
     
     for match in import_pattern.findall(file_content):
@@ -56,18 +136,22 @@ def parse_python(file_content: str):
 def analyze_directory(extract_dir: str):
     G = nx.DiGraph()
     files_data = {}
+    all_chunks = []
     
     for root, _, files in os.walk(extract_dir):
         for file in files:
-            if file.endswith(('.py', '.js', '.ts', '.jsx', '.tsx')):
+            if file.endswith(('.py', '.js', '.ts', '.jsx', '.tsx', '.md', '.txt', '.json')):
                 filepath = os.path.join(root, file)
                 rel_path = os.path.relpath(filepath, extract_dir)
-                # Normalize path for ID
                 node_id = rel_path.replace('\\', '/')
                 
                 with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
                     content = f.read()
                 
+                # Chunking for RAG
+                file_chunks = chunk_file(node_id, content)
+                all_chunks.extend(file_chunks)
+
                 imports = []
                 icon = "description"
                 if file.endswith('.py'):
@@ -76,8 +160,11 @@ def analyze_directory(extract_dir: str):
                 elif file.endswith(('.js', '.jsx', '.ts', '.tsx')):
                     imports = parse_js_ts(content)
                     icon = "code"
+                elif file.endswith('.md'):
+                    icon = "article"
+                elif file.endswith('.json'):
+                    icon = "settings"
                 
-                # Simple heuristic for icon
                 if "middleware" in file.lower():
                     icon = "lock"
                 elif "db" in file.lower() or "store" in file.lower():
@@ -96,29 +183,19 @@ def analyze_directory(extract_dir: str):
                 
                 G.add_node(node_id, label=file, type="customNode", icon=icon)
 
-# Build edges
+    # Build edges
     for node_id, data in files_data.items():
         for imp in data["imports"]:
-            # Clean up Next.js aliases and relative path operators 
-            # e.g., '@/components/TopAppBar' -> 'components/TopAppBar'
             clean_imp = re.sub(r'^(\./|\.\./|@/)+', '', imp)
-            
-            for target_id, target_data in files_data.items():
-                # Remove the file extension from the target node for clean comparison
+            for target_id, _ in files_data.items():
                 target_id_no_ext = os.path.splitext(target_id)[0]
-                
-                # Match if the target path securely ends with the imported path
-                # Condition 1: Exact path suffix (e.g., .../components/TopAppBar)
-                # Condition 2: Exact match at root
-                # Condition 3: React barrel file resolution (e.g., .../components/index)
                 if target_id_no_ext.endswith(f"/{clean_imp}") or \
                    target_id_no_ext == clean_imp or \
                    target_id_no_ext.endswith(f"/{clean_imp}/index"):
-                    
                     G.add_edge(node_id, target_id)
                     break
     
-    return G, files_data
+    return G, files_data, all_chunks
 
 @app.post("/api/upload")
 async def upload_repo(file: UploadFile = File(...)):
@@ -135,9 +212,13 @@ async def upload_repo(file: UploadFile = File(...)):
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(extract_dir)
         
-        G, files_data = analyze_directory(extract_dir)
+        G, files_data, all_chunks = analyze_directory(extract_dir)
         
-        # Position nodes using spring layout for MVP
+        # Update global context
+        repo_context["files"] = files_data
+        repo_context["graph"] = G
+        repo_context["search_index"].add_chunks(all_chunks)
+        
         try:
             pos = nx.spring_layout(G, scale=400)
         except Exception:
@@ -171,25 +252,77 @@ async def upload_repo(file: UploadFile = File(...)):
             "files": files_data
         }
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    retry=retry_if_exception_type(Exception)
+)
+def call_gemini(model_name: str, contents: list, system_instruction: str):
+    return client.models.generate_content(
+        model=model_name,
+        contents=contents,
+        config=types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            temperature=0.1,
+        )
+    )
+
 @app.post("/api/chat")
 async def chat_with_repo(request: ChatRequest):
-    # For the MVP, we are mocking the AI response.
-    # In a real implementation, this would connect to OpenAI/Claude
-    # and pass `request.context` (the graph data) as part of the system prompt.
-    query = request.message.lower()
+    if not client:
+        return {"reply": "Error: Gemini API key is missing. Please check your .env file."}
     
-    if "architecture" in query or "structure" in query:
-        response = "Based on the repository context, the architecture follows a standard layered approach. You can see the main modules separated by concerns. Use the graph visualization on the left to see exactly how they depend on each other."
-    elif "middleware" in query or "auth" in query:
-        response = "The authentication logic is primarily handled in the middleware layer. This ensures that all incoming API requests are verified before reaching the core services."
-    elif "database" in query or "store" in query:
-        response = "I detected database connection patterns. The application appears to use a central store or repository pattern. Look for nodes with the 'database' icon in the graph."
+    if not repo_context["files"]:
+        return {"reply": "Please upload a repository first so I can analyze it and answer your questions."}
+
+    # 1. RAG: Retrieve relevant chunks
+    relevant_chunks = repo_context["search_index"].search(request.message, top_k=8)
+    
+    if not relevant_chunks:
+        # Fallback to some generic info if search returns nothing but we have files
+        context_str = "CONTEXT: No direct matches found, but here is a list of available files:\n"
+        context_str += "\n".join(list(repo_context["files"].keys())[:20])
     else:
-        response = f"This JavaScript file demonstrates the use of the `filter()` method to create new arrays based on specific conditions.Part 1 filters ages to return only adults (values greater than or equal to 18), while Part 2 filters words whose length exceeds 6 characters. It showcases concise arrow function syntax and practical array filtering operations in JavaScript."
+        context_str = "CONTEXT: Here are the relevant snippets from the repository.\n\n"
+        for chunk in relevant_chunks:
+            context_str += f"--- FILE: {chunk.file_path} (Lines {chunk.start_line}-{chunk.end_line}) ---\n{chunk.content}\n\n"
+
+    system_instruction = """You are DocSwarm AI, a specialized document-specific assistant.
+Your goal is to answer questions ONLY about the provided codebase and documents.
+
+STRICT RULES:
+1. Use the provided context as your EXCLUSIVE knowledge source.
+2. If the answer is not in the context, say: "I could not find that information in the uploaded documents."
+3. Keep responses factual, concise, and grounded in the document content.
+4. If you refer to code, mention the file name.
+5. Do NOT use general external knowledge."""
+
+    try:
+        response = call_gemini(
+            model_name="gemini-2.5-flash",
+            contents=[context_str + f"\n\nUSER QUESTION: {request.message}"],
+            system_instruction=system_instruction
+        )
         
-    import asyncio
-    await asyncio.sleep(1) # simulate network latency
-    return {"reply": response}
+        if not response.text:
+            return {"reply": "I could not find that information in the uploaded documents."}
+            
+        return {"reply": response.text}
+
+    except Exception as e:
+        print(f"Gemini API Error: {str(e)}")
+        error_msg = str(e).lower()
+        detailed_error = str(e)
+        if hasattr(e, 'message'): detailed_error = e.message
+        
+        if "api_key" in error_msg or "401" in error_msg:
+            return {"reply": f"Error: Invalid Gemini API key. ({detailed_error})"}
+        elif "quota" in error_msg or "429" in error_msg:
+            return {"reply": f"Error: Gemini API quota exceeded or high demand. Please wait a moment and try again. ({detailed_error})"}
+        elif "connection" in error_msg:
+            return {"reply": f"Error: Failed to connect to Gemini API. ({detailed_error})"}
+        else:
+            return {"reply": f"Error: {type(e).__name__}: {detailed_error}"}
 
 if __name__ == "__main__":
     import uvicorn

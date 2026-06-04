@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 type Message = {
   id: string;
@@ -83,13 +85,21 @@ export function RightPanel() {
                       {msg.sender === "ai" ? "DocSwarm AI" : "You"}
                     </span>
                   </div>
-                  <p className={`font-body-md text-[14px] p-3 rounded-lg border inline-block text-left ${
+                  <div className={`font-body-md p-3 rounded-lg border inline-block text-left ${
                     msg.sender === 'user' 
                       ? 'bg-[#F1F1EF] border-transparent text-slate-800 rounded-tr-none' 
                       : 'bg-surface-container-low border-surface-variant text-on-surface-variant rounded-tl-none'
                   }`}>
-                    {msg.text}
-                  </p>
+                    {msg.sender === "ai" ? (
+                      <div className="prose-chat">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {msg.text}
+                        </ReactMarkdown>
+                      </div>
+                    ) : (
+                      <p className="text-[14px]">{msg.text}</p>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}

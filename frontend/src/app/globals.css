@@ -159,3 +159,63 @@ body {
 .react-flow__node {
   border-radius: 9999px;
 }
+
+/* Chat Prose Styles */
+.prose-chat {
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.prose-chat p {
+  margin-bottom: 0.75rem;
+}
+
+.prose-chat p:last-child {
+  margin-bottom: 0;
+}
+
+.prose-chat ul {
+  list-style-type: disc;
+  margin-left: 1.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.prose-chat ol {
+  list-style-type: decimal;
+  margin-left: 1.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.prose-chat li {
+  margin-bottom: 0.25rem;
+}
+
+.prose-chat code {
+  background-color: var(--color-surface-container);
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  font-family: var(--font-code);
+  font-size: 0.85em;
+}
+
+.prose-chat pre {
+  background-color: var(--color-surface-container-highest);
+  padding: 0.75rem;
+  border-radius: 0.375rem;
+  overflow-x: auto;
+  margin-bottom: 0.75rem;
+  font-family: var(--font-code);
+  font-size: 0.85em;
+}
+
+.prose-chat strong {
+  font-weight: 600;
+  color: var(--color-on-surface);
+}
+
+.prose-chat h1, .prose-chat h2, .prose-chat h3 {
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  color: var(--color-on-surface);
+}
