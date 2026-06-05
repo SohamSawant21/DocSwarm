@@ -88,7 +88,9 @@ def chunk_file(file_path: str, content: str, chunk_size: int = 50, overlap: int 
 repo_context = {
     "files": {},
     "graph": None,
-    "search_index": LocalSearchIndex()
+    "search_index": LocalSearchIndex(),
+    "repo_map": "",
+    "intelligence_summary": ""
 }
 
 class ChatRequest(BaseModel):
@@ -104,6 +106,157 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+async def generate_intelligence_report(files_data: Dict[str, Any], repo_map: str) -> str:
+    """
+    Generates a structured Evidence-Based Engineering Review during the upload phase.
+    """
+    if not client:
+        return "Intelligence report generation skipped: Gemini API key missing."
+
+    # 1. Identify Critical Files for Context
+    critical_files = {}
+    priority_patterns = [
+        'readme.md', 'package.json', 'requirements.txt', 'main.py', 
+        'index.js', 'app.tsx', 'next.config', 'tsconfig.json', 'dockerfile'
+    ]
+    
+    for path, data in files_data.items():
+        name = os.path.basename(path).lower()
+        if any(p in name for p in priority_patterns):
+            # Limit content to first 3000 chars per critical file to control tokens
+            critical_files[path] = data['content'][:3000]
+
+    # 2. Prepare the prompt for the "Architect's Pass"
+    analysis_prompt = f"""You are a Senior Principal Software Architect performing a deep-dive analysis of a repository.
+    
+### INPUT DATA
+1. REPOSITORY BLUEPRINT (Structure & Dependencies):
+{repo_map}
+
+2. CRITICAL FILE CONTENTS:
+{chr(10).join([f"--- FILE: {p} ---\n{c}\n" for p, c in critical_files.items()])}
+
+### TASK
+Generate a concise, structured 'Evidence-Based Engineering Review' (500-1500 words).
+Focus ONLY on facts supported by the provided data.
+
+### REQUIRED SECTIONS
+1. TECHNOLOGY STACK: List languages, frameworks, and versions.
+2. MAJOR COMPONENTS: Identify the core modules and their responsibilities.
+3. DATA FLOW: Trace the lifecycle of data (e.g., UI -> API -> Logic).
+4. ARCHITECTURAL PATTERNS: Classify the design (e.g., Monolith, Client-Server, RAG).
+5. EVIDENCE-BASED STRENGTHS: List what is well-implemented (cite files).
+6. EVIDENCE-BASED RISKS: Identify specific technical risks (cite files and explain evidence).
+7. IMPROVEMENT OPPORTUNITIES: Suggest specific refactors (cite files and provide rationale).
+
+### CONSTRAINTS
+- Be extremely specific. Use file names and code patterns.
+- Avoid generic praise or criticism.
+- If you cite a risk, you MUST explain the evidence (e.g., "File X uses global state which prevents Y").
+"""
+
+    try:
+        # Use a slightly higher temperature (0.2) for creative architectural synthesis
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=[analysis_prompt],
+            config=types.GenerateContentConfig(
+                system_instruction="You are an expert software reviewer. Provide a high-density, evidence-based technical report.",
+                temperature=0.2,
+            )
+        )
+        return response.text or "Failed to generate report."
+    except Exception as e:
+        print(f"Intelligence Generation Error: {str(e)}")
+        return f"Error generating intelligence report: {str(e)}"
+
+def classify_role(file_path: str, content: str) -> str:
+    path_lower = file_path.lower()
+    name = os.path.basename(path_lower)
+    
+    if name in ['main.py', 'index.js', 'app.tsx', 'app.ts', 'server.js']:
+        return "Entry Points"
+    if any(k in path_lower for k in ['route', 'api', 'endpoint', 'controller']):
+        return "Routing & Controllers"
+    if any(k in path_lower for k in ['model', 'schema', 'db', 'database', 'entity']):
+        return "Data Models & Persistence"
+    if any(k in path_lower for k in ['service', 'logic', 'manager', 'util', 'helper']):
+        return "Services & Utilities"
+    if any(k in path_lower for k in ['component', 'ui', 'view', 'page', 'screen']):
+        return "UI Components"
+    if name.endswith(('.json', '.yaml', '.yml', '.env', 'config.js', 'config.ts', 'requirements.txt')):
+        return "Configuration"
+    if name.endswith(('.md', '.txt')):
+        return "Documentation"
+    return "Other"
+
+def generate_repo_map(files_data: Dict[str, Any], G: nx.DiGraph) -> str:
+    blueprint = "### REPOSITORY ARCHITECTURE BLUEPRINT\n\n"
+    
+    # 1. Project Overview (Search for README)
+    overview = "No README found."
+    for path, data in files_data.items():
+        if path.lower() == 'readme.md':
+            content = data['content']
+            # Take first 500 chars as summary
+            overview = content[:500] + ("..." if len(content) > 500 else "")
+            break
+    blueprint += f"#### 1. PROJECT OVERVIEW\n{overview}\n\n"
+    
+    # 2. Architectural Roles
+    roles = {
+        "Entry Points": [],
+        "Routing & Controllers": [],
+        "Data Models & Persistence": [],
+        "Services & Utilities": [],
+        "UI Components": [],
+        "Configuration": [],
+        "Documentation": []
+    }
+    
+    for path, data in files_data.items():
+        role = classify_role(path, data['content'])
+        if role in roles:
+            roles[role].append(path)
+            
+    blueprint += "#### 2. ARCHITECTURAL ROLES\n"
+    for role, paths in roles.items():
+        if paths:
+            file_list = ", ".join(paths[:10]) + ("..." if len(paths) > 10 else "")
+            blueprint += f"- **{role}**: {file_list}\n"
+    blueprint += "\n"
+    
+    # 3. Logical Dependency Graph (Top Relationships)
+    blueprint += "#### 3. LOGICAL DEPENDENCY GRAPH (TOP RELATIONSHIPS)\n"
+    edges = list(G.edges())
+    for u, v in edges[:20]:
+        blueprint += f"- `{u}` --> depends on --> `{v}`\n"
+    if len(edges) > 20:
+        blueprint += f"- ... (total {len(edges)} relationships)\n"
+    blueprint += "\n"
+    
+    # 4. Directory Tree
+    blueprint += "#### 4. DIRECTORY TREE\n"
+    dirs = set()
+    for path in files_data.keys():
+        parts = path.split('/')
+        if len(parts) > 1:
+            dirs.add(f"- {parts[0]}/")
+            if len(parts) > 2:
+                dirs.add(f"  - {parts[0]}/{parts[1]}/")
+    blueprint += "\n".join(sorted(list(dirs))[:30])
+    
+    return blueprint
+
+def detect_architectural_intent(query: str) -> bool:
+    arch_keywords = {
+        "architecture", "structure", "design", "flow", "work", "explain", 
+        "summarize", "overview", "project", "how does", "alternative", 
+        "improvement", "weakness", "pattern", "layout", "purpose"
+    }
+    query_lower = query.lower()
+    return any(keyword in query_lower for keyword in arch_keywords)
 
 def parse_js_ts(file_content: str):
     imports = []
@@ -214,10 +367,18 @@ async def upload_repo(file: UploadFile = File(...)):
         
         G, files_data, all_chunks = analyze_directory(extract_dir)
         
+        # Generate Architectural Blueprint
+        repo_map = generate_repo_map(files_data, G)
+
+        # Generate Evidence-Based Engineering Review
+        intelligence_summary = await generate_intelligence_report(files_data, repo_map)
+        
         # Update global context
         repo_context["files"] = files_data
         repo_context["graph"] = G
         repo_context["search_index"].add_chunks(all_chunks)
+        repo_context["repo_map"] = repo_map
+        repo_context["intelligence_summary"] = intelligence_summary
         
         try:
             pos = nx.spring_layout(G, scale=400)
@@ -275,27 +436,55 @@ async def chat_with_repo(request: ChatRequest):
     if not repo_context["files"]:
         return {"reply": "Please upload a repository first so I can analyze it and answer your questions."}
 
-    # 1. RAG: Retrieve relevant chunks
-    relevant_chunks = repo_context["search_index"].search(request.message, top_k=8)
+    # 1. Intent Detection
+    is_architectural = detect_architectural_intent(request.message)
+    
+    # 2. RAG: Retrieve relevant chunks
+    # We increase top_k for architectural questions to give more breadth
+    top_k = 12 if is_architectural else 8
+    relevant_chunks = repo_context["search_index"].search(request.message, top_k=top_k)
+    
+    # 3. Build Context
+    context_str = ""
+    
+    # Inject Repository Blueprint
+    if repo_context["repo_map"]:
+        context_str += f"{repo_context['repo_map']}\n\n"
+
+    # Inject Evidence-Based Engineering Review
+    if repo_context["intelligence_summary"]:
+        context_str += "### EVIDENCE-BASED ENGINEERING REVIEW\n"
+        context_str += f"{repo_context['intelligence_summary']}\n\n"
     
     if not relevant_chunks:
         # Fallback to some generic info if search returns nothing but we have files
-        context_str = "CONTEXT: No direct matches found, but here is a list of available files:\n"
+        context_str += "CODE SNIPPETS: No direct matches found, but here is a list of available files:\n"
         context_str += "\n".join(list(repo_context["files"].keys())[:20])
     else:
-        context_str = "CONTEXT: Here are the relevant snippets from the repository.\n\n"
+        context_str += "CODE SNIPPETS: Here are the relevant snippets from the repository.\n\n"
         for chunk in relevant_chunks:
             context_str += f"--- FILE: {chunk.file_path} (Lines {chunk.start_line}-{chunk.end_line}) ---\n{chunk.content}\n\n"
 
-    system_instruction = """You are DocSwarm AI, a specialized document-specific assistant.
-Your goal is to answer questions ONLY about the provided codebase and documents.
+    if is_architectural:
+        context_str += "\nNOTE: The user is asking a structural or architectural question. Prioritize the REPOSITORY ARCHITECTURE BLUEPRINT and ENGINEERING REVIEW above for your reasoning.\n"
 
-STRICT RULES:
+    system_instruction = """You are DocSwarm AI, a Senior Software Architect and Repository Intelligence Assistant.
+Your goal is to answer questions about the provided codebase using the provided context.
+
+### YOUR KNOWLEDGE SOURCE
+You have three primary sources of truth in the CONTEXT:
+1. REPOSITORY ARCHITECTURE BLUEPRINT: Use this for mapping file roles and dependencies.
+2. EVIDENCE-BASED ENGINEERING REVIEW: Use this for high-level questions about project purpose, tech stack, data flow, architectural patterns, and identifying strengths/risks.
+3. CODE SNIPPETS: Use these for specific implementation details, function lookups, and bug analysis.
+
+### STRICT RULES:
 1. Use the provided context as your EXCLUSIVE knowledge source.
-2. If the answer is not in the context, say: "I could not find that information in the uploaded documents."
-3. Keep responses factual, concise, and grounded in the document content.
-4. If you refer to code, mention the file name.
-5. Do NOT use general external knowledge."""
+2. For ARCHITECTURAL and STRATEGIC questions (overview, flow, design, risks, improvements), synthesize your answer primarily from the BLUEPRINT and ENGINEERING REVIEW.
+3. For IMPLEMENTATION questions (how X works, where is Y), use the CODE SNIPPETS.
+4. If the answer is not in any source, say: "I could not find that information in the uploaded documents."
+5. Mention file names when referring to code or structure.
+6. Keep responses factual, professional, and grounded.
+7. Do NOT use general external knowledge about unrelated projects."""
 
     try:
         response = call_gemini(
