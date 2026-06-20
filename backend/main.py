@@ -353,65 +353,73 @@ def analyze_directory(extract_dir: str):
 @app.post("/api/upload")
 async def upload_repo(file: UploadFile = File(...)):
     if not file.filename.endswith('.zip'):
-        return {"error": "Only .zip files are supported"}
+        raise HTTPException(status_code=400, detail="Only .zip files are supported")
     
-    with tempfile.TemporaryDirectory() as tmpdirname:
-        zip_path = os.path.join(tmpdirname, "repo.zip")
-        with open(zip_path, "wb") as f:
-            content = await file.read()
-            f.write(content)
-        
-        extract_dir = os.path.join(tmpdirname, "extracted")
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(extract_dir)
-        
-        G, files_data, all_chunks = analyze_directory(extract_dir)
-        
-        # Generate Architectural Blueprint
-        repo_map = generate_repo_map(files_data, G)
+    try:
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            zip_path = os.path.join(tmpdirname, "repo.zip")
+            with open(zip_path, "wb") as f:
+                content = await file.read()
+                f.write(content)
+            
+            extract_dir = os.path.join(tmpdirname, "extracted")
+            os.makedirs(extract_dir, exist_ok=True)
+            
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                # Secure extraction to prevent Zip Slip attacks
+                extract_dir_real = os.path.realpath(extract_dir)
+                for member in zip_ref.namelist():
+                    # Resolve target path safely
+                    target_path = os.path.realpath(os.path.join(extract_dir_real, member))
+                    # Ensure target_path starts with extract_dir_real (plus a separator to prevent partial name matches)
+                    if not target_path.startswith(extract_dir_real + os.sep) and target_path != extract_dir_real:
+                        raise HTTPException(status_code=400, detail="Malicious archive detected: Path traversal attempt")
+                    zip_ref.extract(member, extract_dir)
+            
+            G, files_data, all_chunks = analyze_directory(extract_dir)
+            
+            # Generate Architectural Blueprint
+            repo_map = generate_repo_map(files_data, G)
 
-        # Generate Evidence-Based Engineering Review
-        intelligence_summary = await generate_intelligence_report(files_data, repo_map)
-        
-        # Update global context
-        repo_context["files"] = files_data
-        repo_context["graph"] = G
-        repo_context["search_index"].add_chunks(all_chunks)
-        repo_context["repo_map"] = repo_map
-        repo_context["intelligence_summary"] = intelligence_summary
-        
-        try:
-            pos = nx.spring_layout(G, scale=400)
-        except Exception:
-            pos = {}
+            # Generate Evidence-Based Engineering Review
+            intelligence_summary = await generate_intelligence_report(files_data, repo_map)
             
-        rf_nodes = []
-        for node, data in G.nodes(data=True):
-            p = pos.get(node, [0,0])
-            rf_nodes.append({
-                "id": node,
-                "position": {"x": int(p[0]) + 400, "y": int(p[1]) + 300},
-                "data": {"label": data.get("label", node), "icon": data.get("icon", "description")},
-                "type": "customNode"
-            })
+            # Update global context
+            repo_context["files"] = files_data
+            repo_context["graph"] = G
+            repo_context["search_index"].add_chunks(all_chunks)
+            repo_context["repo_map"] = repo_map
+            repo_context["intelligence_summary"] = intelligence_summary
             
-        rf_edges = []
-        for idx, (u, v) in enumerate(G.edges()):
-            rf_edges.append({
-                "id": f"e{idx}",
-                "source": u,
-                "target": v,
-                "animated": True
-            })
-            
-        return {
-            "message": "Upload successful",
-            "graph": {
-                "nodes": rf_nodes,
-                "edges": rf_edges,
-            },
-            "files": files_data
-        }
+            rf_nodes = []
+            for node, data in G.nodes(data=True):
+                rf_nodes.append({
+                    "id": node,
+                    "position": {"x": 0, "y": 0},
+                    "data": {"label": data.get("label", node), "icon": data.get("icon", "description")},
+                    "type": "customNode"
+                })
+                
+            rf_edges = []
+            for idx, (u, v) in enumerate(G.edges()):
+                rf_edges.append({
+                    "id": f"e{idx}",
+                    "source": u,
+                    "target": v,
+                    "animated": True
+                })
+                
+            return {
+                "message": "Upload successful",
+                "graph": {
+                    "nodes": rf_nodes,
+                    "edges": rf_edges,
+                },
+                "files": files_data
+            }
+    except Exception as e:
+        print(f"Upload Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to process upload: {str(e)}")
 
 @retry(
     stop=stop_after_attempt(3),
@@ -431,10 +439,10 @@ def call_gemini(model_name: str, contents: list, system_instruction: str):
 @app.post("/api/chat")
 async def chat_with_repo(request: ChatRequest):
     if not client:
-        return {"reply": "Error: Gemini API key is missing. Please check your .env file."}
+        raise HTTPException(status_code=500, detail="Gemini API key is missing. Please check your .env file.")
     
     if not repo_context["files"]:
-        return {"reply": "Please upload a repository first so I can analyze it and answer your questions."}
+        raise HTTPException(status_code=400, detail="Please upload a repository first so I can analyze it and answer your questions.")
 
     # 1. Intent Detection
     is_architectural = detect_architectural_intent(request.message)
@@ -447,6 +455,15 @@ async def chat_with_repo(request: ChatRequest):
     # 3. Build Context
     context_str = ""
     
+    # Inject Selected File Context
+    selected_file = request.context.get("selectedFile")
+    if selected_file:
+        context_str += "### ACTIVE FILE CONTEXT\n"
+        context_str += f"The user is currently inspecting the following file: {selected_file.get('path')}\n"
+        context_str += f"Imports: {', '.join(selected_file.get('imports', []))}\n"
+        context_str += f"Content:\n{selected_file.get('content', '')}\n\n"
+        context_str += "IMPORTANT: If the user says 'this file', 'here', or asks to summarize/explain without naming a file, assume they are talking about the ACTIVE FILE above. Analyze this specific file in priority.\n\n"
+
     # Inject Repository Blueprint
     if repo_context["repo_map"]:
         context_str += f"{repo_context['repo_map']}\n\n"
@@ -505,13 +522,13 @@ You have three primary sources of truth in the CONTEXT:
         if hasattr(e, 'message'): detailed_error = e.message
         
         if "api_key" in error_msg or "401" in error_msg:
-            return {"reply": f"Error: Invalid Gemini API key. ({detailed_error})"}
+            raise HTTPException(status_code=401, detail=f"Invalid Gemini API key. ({detailed_error})")
         elif "quota" in error_msg or "429" in error_msg:
-            return {"reply": f"Error: Gemini API quota exceeded or high demand. Please wait a moment and try again. ({detailed_error})"}
+            raise HTTPException(status_code=429, detail=f"Gemini API quota exceeded or high demand. Please wait a moment and try again. ({detailed_error})")
         elif "connection" in error_msg:
-            return {"reply": f"Error: Failed to connect to Gemini API. ({detailed_error})"}
+            raise HTTPException(status_code=503, detail=f"Failed to connect to Gemini API. ({detailed_error})")
         else:
-            return {"reply": f"Error: {type(e).__name__}: {detailed_error}"}
+            raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {detailed_error}")
 
 if __name__ == "__main__":
     import uvicorn

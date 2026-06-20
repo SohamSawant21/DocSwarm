@@ -1,14 +1,23 @@
 "use client";
 
 import { useState } from "react";
+import type { UploadResponse, FileData } from "@/types";
 
-export function FileTree({ data }: { data: any }) {
+export function FileTree({ 
+  data,
+  selectedNodeId,
+  onSelectNode
+}: { 
+  data: UploadResponse;
+  selectedNodeId: string | null;
+  onSelectNode: (id: string | null) => void;
+}) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
 
   if (!data || !data.files) return null;
 
-  const entries = Object.entries(data.files) as [string, any][];
+  const entries = Object.entries(data.files) as [string, FileData][];
   const filtered = query.trim()
     ? entries.filter(([path, file]) =>
         file.label.toLowerCase().includes(query.toLowerCase()) ||
@@ -61,19 +70,29 @@ export function FileTree({ data }: { data: any }) {
           {filtered.length === 0 ? (
             <p className="text-outline text-[13px] py-2">No files match.</p>
           ) : (
-            filtered.map(([path, file]) => (
-              <div
-                key={path}
-                className="flex items-center gap-3 text-on-surface-variant hover:text-on-surface cursor-pointer py-1.5 rounded px-1 hover:bg-[#EFEFED] group transition-colors"
-              >
-                <span className="material-symbols-outlined text-[16px] text-outline group-hover:text-primary transition-colors shrink-0">
-                  {file.icon || "description"}
-                </span>
-                <span className="truncate" title={path}>
-                  {file.label}
-                </span>
-              </div>
-            ))
+            filtered.map(([path, file]) => {
+              const isSelected = path === selectedNodeId;
+              return (
+                <div
+                  key={path}
+                  onClick={() => onSelectNode(isSelected ? null : path)}
+                  className={`flex items-center gap-3 cursor-pointer py-1.5 rounded px-1 group transition-colors ${
+                    isSelected 
+                      ? "bg-primary text-on-primary hover:bg-primary-fixed hover:text-on-primary-fixed" 
+                      : "text-on-surface-variant hover:text-on-surface hover:bg-[#EFEFED]"
+                  }`}
+                >
+                  <span className={`material-symbols-outlined text-[16px] transition-colors shrink-0 ${
+                    isSelected ? "text-on-primary" : "text-outline group-hover:text-primary"
+                  }`}>
+                    {file.icon || "description"}
+                  </span>
+                  <span className="truncate" title={path}>
+                    {file.label}
+                  </span>
+                </div>
+              );
+            })
           )}
         </div>
       </div>

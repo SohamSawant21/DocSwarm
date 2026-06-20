@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { endpoints } from "@/lib/api";
+import type { FileData } from "@/types";
 
 type Message = {
   id: string;
@@ -10,7 +12,13 @@ type Message = {
   text: string;
 };
 
-export function RightPanel() {
+export function RightPanel({ 
+  selectedNodeId, 
+  selectedNodeData 
+}: { 
+  selectedNodeId?: string | null;
+  selectedNodeData?: FileData | null;
+}) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -33,17 +41,35 @@ export function RightPanel() {
     setInput("");
     setIsLoading(true);
 
+    const contextPayload: Record<string, any> = {};
+    if (selectedNodeId && selectedNodeData) {
+      contextPayload.selectedFile = {
+        id: selectedNodeId,
+        path: selectedNodeId,
+        imports: selectedNodeData.imports,
+        content: selectedNodeData.content,
+        role: "File" // Fallback role, can be enhanced later
+      };
+    }
+
     try {
-      const response = await fetch("http://localhost:8000/api/chat", {
+      const response = await fetch(endpoints.chat, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ message: userMsg.text, context: {} }),
+        body: JSON.stringify({ message: userMsg.text, context: contextPayload }),
       });
       const data = await response.json();
       
-      const aiMsg: Message = { id: (Date.now() + 1).toString(), sender: "ai", text: data.reply || "Error: No response from AI." };
+      let replyText = data.reply;
+      if (!response.ok) {
+        replyText = `Error: ${data.detail || "Server error"}`;
+      } else if (!replyText) {
+        replyText = "Error: No response from AI.";
+      }
+      
+      const aiMsg: Message = { id: (Date.now() + 1).toString(), sender: "ai", text: replyText };
       setMessages((prev) => [...prev, aiMsg]);
     } catch (error) {
       console.error("Chat error:", error);
@@ -125,6 +151,11 @@ export function RightPanel() {
 
       {/* Persistent Chat Bar at bottom of right column */}
       <div className="p-4 border-t border-surface-variant bg-surface-bright shrink-0">
+        <div className="max-w-3xl mx-auto w-full mb-2">
+          <span className="text-[11px] font-ui-label text-on-surface-variant uppercase tracking-wider">
+            Current Context: <strong className="text-primary truncate">{selectedNodeId || "Repository Overview"}</strong>
+          </span>
+        </div>
         <form className="max-w-3xl mx-auto w-full" onSubmit={handleSubmit}>
           <div className="relative flex items-center bg-[#f6f6f8] rounded-full border border-[#d1d5db] px-4 py-2 shadow-sm group focus-within:border-primary/50 transition-all">
             <input

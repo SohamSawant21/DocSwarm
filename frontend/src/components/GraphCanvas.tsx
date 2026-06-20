@@ -11,8 +11,11 @@ import {
   useEdgesState,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import Editor from "@monaco-editor/react";
+import type { UploadResponse, CustomNodeData, GraphNode, GraphEdge, NodeDetail } from "@/types";
+import type { ReactFlowInstance } from "@xyflow/react";
 
-function CustomNode({ data }: { data: any }) {
+function CustomNode({ data }: { data: CustomNodeData }) {
   return (
     <>
       <Handle type="target" position={Position.Left} />
@@ -53,10 +56,9 @@ const nodeTypes = {
 };
 
 // --- DAGRE LAYOUT ENGINE SETUP ---
-const dagreGraph = new dagre.graphlib.Graph();
-dagreGraph.setDefaultEdgeLabel(() => ({}));
-
-const getLayoutedElements = (nodes: any[], edges: any[], direction = "LR") => {
+const getLayoutedElements = (nodes: GraphNode[], edges: GraphEdge[], direction = "LR") => {
+  const dagreGraph = new dagre.graphlib.Graph();
+  dagreGraph.setDefaultEdgeLabel(() => ({}));
   dagreGraph.setGraph({ rankdir: direction });
 
   nodes.forEach((node) => {
@@ -70,12 +72,12 @@ const getLayoutedElements = (nodes: any[], edges: any[], direction = "LR") => {
 
   dagre.layout(dagreGraph);
 
-  const newNodes = nodes.map((node) => {
+  const newNodes: GraphNode[] = nodes.map((node) => {
     const nodeWithPosition = dagreGraph.node(node.id);
     return {
       ...node,
-      targetPosition: "left",
-      sourcePosition: "right",
+      targetPosition: Position.Left,
+      sourcePosition: Position.Right,
       position: {
         x: nodeWithPosition.x - 75, // Center offset (width / 2)
         y: nodeWithPosition.y - 40, // Center offset (height / 2)
@@ -87,10 +89,39 @@ const getLayoutedElements = (nodes: any[], edges: any[], direction = "LR") => {
 };
 // ---------------------------------
 
-export function GraphCanvas({ data }: { data: any }) {
-  const [nodes, setNodes, onNodesChange] = useNodesState<any>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<any>([]);
-  const [selectedNode, setSelectedNode] = useState<any>(null);
+const getLanguage = (filename: string) => {
+  const ext = filename.split('.').pop()?.toLowerCase();
+  switch (ext) {
+    case 'js':
+    case 'jsx': return 'javascript';
+    case 'ts':
+    case 'tsx': return 'typescript';
+    case 'py': return 'python';
+    case 'json': return 'json';
+    case 'md': return 'markdown';
+    case 'html': return 'html';
+    case 'css': return 'css';
+    default: return 'plaintext';
+  }
+};
+
+export function GraphCanvas({ 
+  data,
+  selectedNodeId,
+  onSelectNode
+}: { 
+  data: UploadResponse;
+  selectedNodeId: string | null;
+  onSelectNode: (id: string | null) => void;
+}) {
+  const [nodes, setNodes, onNodesChange] = useNodesState<GraphNode>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<GraphEdge>([]);
+  const [isSourceModalOpen, setIsSourceModalOpen] = useState(false);
+  const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance<GraphNode, GraphEdge> | null>(null);
+
+  const selectedNode = selectedNodeId && data.files[selectedNodeId]
+    ? { id: selectedNodeId, ...data.files[selectedNodeId] }
+    : null;
 
   useEffect(() => {
     if (data && data.graph) {
@@ -109,11 +140,35 @@ export function GraphCanvas({ data }: { data: any }) {
     }
   }, [data, setNodes, setEdges]);
 
-  const handleNodeClick = (_: any, node: any) => {
-    const fileData = data.files[node.id];
-    if (fileData) {
-      setSelectedNode({ id: node.id, ...fileData });
+  // Synchronize selection highlight
+  useEffect(() => {
+    setNodes((nds) =>
+      nds.map((n) => ({
+        ...n,
+        data: {
+          ...n.data,
+          highlight: n.id === selectedNodeId,
+        },
+      }))
+    );
+  }, [selectedNodeId, setNodes]);
+
+  // Center node on selection
+  useEffect(() => {
+    if (reactFlowInstance && selectedNodeId && nodes.length > 0) {
+      const node = nodes.find((n) => n.id === selectedNodeId);
+      if (node && node.position) {
+        // Offset centering slightly to account for the right-side metadata panel
+        reactFlowInstance.setCenter(node.position.x + 75, node.position.y + 40, {
+          zoom: 1.2,
+          duration: 800,
+        });
+      }
     }
+  }, [selectedNodeId, reactFlowInstance, nodes]);
+
+  const handleNodeClick = (_: React.MouseEvent, node: GraphNode) => {
+    onSelectNode(node.id === selectedNodeId ? null : node.id);
   };
 
   return (
@@ -137,6 +192,7 @@ export function GraphCanvas({ data }: { data: any }) {
           onEdgesChange={onEdgesChange}
           nodeTypes={nodeTypes}
           fitView
+          onInit={setReactFlowInstance}
           proOptions={{ hideAttribution: true }}
           onNodeClick={handleNodeClick}
         >
@@ -155,14 +211,14 @@ export function GraphCanvas({ data }: { data: any }) {
                   {selectedNode.label}
                 </h3>
               </div>
-              <button
-                className="text-on-surface-variant hover:text-on-surface"
-                onClick={() => setSelectedNode(null)}
-              >
-                <span className="material-symbols-outlined text-[18px]">
-                  close
-                </span>
-              </button>
+                <button
+                  className="text-on-surface-variant hover:text-on-surface"
+                  onClick={() => onSelectNode(null)}
+                >
+                  <span className="material-symbols-outlined text-[18px]">
+                    close
+                  </span>
+                </button>
             </div>
             <div className="p-4 flex-1 overflow-y-auto">
               <div className="mb-6">
@@ -202,9 +258,53 @@ export function GraphCanvas({ data }: { data: any }) {
               </div>
             </div>
             <div className="p-4 border-t border-surface-variant bg-surface shrink-0">
-              <button className="w-full py-2 bg-primary text-on-primary font-ui-label text-ui-label rounded-md hover:bg-on-primary-fixed-variant transition-colors">
+              <button 
+                className="w-full py-2 bg-primary text-on-primary font-ui-label text-ui-label rounded-md hover:bg-on-primary-fixed-variant transition-colors"
+                onClick={() => setIsSourceModalOpen(true)}
+              >
                 View Source
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Source Code Modal Overlay */}
+        {isSourceModalOpen && selectedNode && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-8">
+            <div className="bg-surface-bright border border-surface-variant rounded-xl shadow-2xl flex flex-col w-full max-w-5xl h-full max-h-[85vh] overflow-hidden">
+              <div className="p-4 border-b border-surface-variant flex justify-between items-center bg-surface shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-primary text-[20px]">
+                    code
+                  </span>
+                  <h3 className="font-ui-label text-ui-label text-on-surface truncate">
+                    {selectedNode.id}
+                  </h3>
+                </div>
+                <button
+                  className="text-on-surface-variant hover:text-on-surface"
+                  onClick={() => setIsSourceModalOpen(false)}
+                >
+                  <span className="material-symbols-outlined text-[24px]">
+                    close
+                  </span>
+                </button>
+              </div>
+              <div className="flex-1 bg-[#1e1e1e] overflow-hidden">
+                <Editor
+                  height="100%"
+                  language={getLanguage(selectedNode.id)}
+                  theme="vs-dark"
+                  value={selectedNode.content || ""}
+                  options={{
+                    readOnly: true,
+                    minimap: { enabled: true },
+                    scrollBeyondLastLine: false,
+                    wordWrap: "on",
+                    fontSize: 14,
+                  }}
+                />
+              </div>
             </div>
           </div>
         )}
