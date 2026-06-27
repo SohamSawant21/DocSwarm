@@ -350,10 +350,23 @@ def analyze_directory(extract_dir: str):
     
     return G, files_data, all_chunks
 
+MAX_FILE_SIZE = 50 * 1024 * 1024 # 50 MB
+
 @app.post("/api/upload")
 async def upload_repo(file: UploadFile = File(...)):
-    if not file.filename.endswith('.zip'):
-        raise HTTPException(status_code=400, detail="Only .zip files are supported")
+    if not file.filename.lower().endswith('.zip'):
+        raise HTTPException(status_code=400, detail="Invalid file type. Only .zip files are allowed.")
+        
+    if file.content_type not in ["application/zip", "application/x-zip-compressed"]:
+        raise HTTPException(status_code=400, detail="Invalid file type. Only .zip files are allowed.")
+        
+    # Check file size limitation
+    file.file.seek(0, os.SEEK_END)
+    file_size = file.file.tell()
+    file.file.seek(0)
+    
+    if file_size > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail="Payload Too Large. Maximum file size is 50MB.")
     
     try:
         with tempfile.TemporaryDirectory() as tmpdirname:
@@ -362,19 +375,21 @@ async def upload_repo(file: UploadFile = File(...)):
                 content = await file.read()
                 f.write(content)
             
-            extract_dir = os.path.join(tmpdirname, "extracted")
+            extract_dir = os.path.abspath(os.path.join(tmpdirname, "extracted"))
             os.makedirs(extract_dir, exist_ok=True)
             
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                # Secure extraction to prevent Zip Slip attacks
-                extract_dir_real = os.path.realpath(extract_dir)
-                for member in zip_ref.namelist():
-                    # Resolve target path safely
-                    target_path = os.path.realpath(os.path.join(extract_dir_real, member))
-                    # Ensure target_path starts with extract_dir_real (plus a separator to prevent partial name matches)
-                    if not target_path.startswith(extract_dir_real + os.sep) and target_path != extract_dir_real:
-                        raise HTTPException(status_code=400, detail="Malicious archive detected: Path traversal attempt")
-                    zip_ref.extract(member, extract_dir)
+            try:
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    # Secure extraction to prevent Zip Slip attacks
+                    for member in zip_ref.infolist():
+                        # Resolve target path safely
+                        target_path = os.path.abspath(os.path.join(extract_dir, member.filename))
+                        # Ensure target_path starts with extract_dir (plus a separator to prevent partial name matches)
+                        if not target_path.startswith(extract_dir + os.sep) and target_path != extract_dir:
+                            raise HTTPException(status_code=400, detail="Malicious archive detected: Path traversal attempt")
+                        zip_ref.extract(member, extract_dir)
+            except zipfile.BadZipFile:
+                raise HTTPException(status_code=400, detail="Invalid or corrupted ZIP file.")
             
             G, files_data, all_chunks = analyze_directory(extract_dir)
             
@@ -417,6 +432,8 @@ async def upload_repo(file: UploadFile = File(...)):
                 },
                 "files": files_data
             }
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Upload Error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to process upload: {str(e)}")
