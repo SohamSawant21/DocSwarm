@@ -13,9 +13,11 @@ type Message = {
 };
 
 export function RightPanel({ 
+  sessionId,
   selectedNodeId, 
   selectedNodeData 
 }: { 
+  sessionId?: string;
   selectedNodeId?: string | null;
   selectedNodeData?: FileData | null;
 }) {
@@ -66,7 +68,7 @@ export function RightPanel({
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ message: userMsg.text, context: contextPayload }),
+        body: JSON.stringify({ message: userMsg.text, session_id: sessionId, context: contextPayload }),
       });
       const data = await response.json();
       

@@ -5,6 +5,7 @@ import re
 import asyncio
 import networkx as nx
 import numpy as np
+import uuid
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -84,17 +85,12 @@ def chunk_file(file_path: str, content: str, chunk_size: int = 50, overlap: int 
         
     return chunks
 
-# In-memory storage for the latest uploaded repository context
-repo_context = {
-    "files": {},
-    "graph": None,
-    "search_index": LocalSearchIndex(),
-    "repo_map": "",
-    "intelligence_summary": ""
-}
+# In-memory storage for uploaded repository contexts per session
+sessions: Dict[str, Dict[str, Any]] = {}
 
 class ChatRequest(BaseModel):
     message: str
+    session_id: str
     context: Dict[str, Any] = {}
 
 app = FastAPI(title="DocSwarm GraphOS API")
@@ -158,7 +154,8 @@ Focus ONLY on facts supported by the provided data.
 
     try:
         # Use a slightly higher temperature (0.2) for creative architectural synthesis
-        response = client.models.generate_content(
+        response = await asyncio.to_thread(
+            client.models.generate_content,
             model="gemini-2.0-flash",
             contents=[analysis_prompt],
             config=types.GenerateContentConfig(
@@ -350,6 +347,18 @@ def analyze_directory(extract_dir: str):
     
     return G, files_data, all_chunks
 
+def extract_and_analyze_zip(zip_path: str, extract_dir: str):
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        for member in zip_ref.infolist():
+            target_path = os.path.abspath(os.path.join(extract_dir, member.filename))
+            if not target_path.startswith(extract_dir + os.sep) and target_path != extract_dir:
+                raise ValueError("Malicious archive detected: Path traversal attempt")
+            zip_ref.extract(member, extract_dir)
+            
+    G, files_data, all_chunks = analyze_directory(extract_dir)
+    repo_map = generate_repo_map(files_data, G)
+    return G, files_data, all_chunks, repo_map
+
 MAX_FILE_SIZE = 50 * 1024 * 1024 # 50 MB
 
 @app.post("/api/upload")
@@ -379,32 +388,28 @@ async def upload_repo(file: UploadFile = File(...)):
             os.makedirs(extract_dir, exist_ok=True)
             
             try:
-                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                    # Secure extraction to prevent Zip Slip attacks
-                    for member in zip_ref.infolist():
-                        # Resolve target path safely
-                        target_path = os.path.abspath(os.path.join(extract_dir, member.filename))
-                        # Ensure target_path starts with extract_dir (plus a separator to prevent partial name matches)
-                        if not target_path.startswith(extract_dir + os.sep) and target_path != extract_dir:
-                            raise HTTPException(status_code=400, detail="Malicious archive detected: Path traversal attempt")
-                        zip_ref.extract(member, extract_dir)
+                G, files_data, all_chunks, repo_map = await asyncio.to_thread(
+                    extract_and_analyze_zip, zip_path, extract_dir
+                )
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
             except zipfile.BadZipFile:
                 raise HTTPException(status_code=400, detail="Invalid or corrupted ZIP file.")
-            
-            G, files_data, all_chunks = analyze_directory(extract_dir)
-            
-            # Generate Architectural Blueprint
-            repo_map = generate_repo_map(files_data, G)
 
             # Generate Evidence-Based Engineering Review
             intelligence_summary = await generate_intelligence_report(files_data, repo_map)
             
-            # Update global context
-            repo_context["files"] = files_data
-            repo_context["graph"] = G
-            repo_context["search_index"].add_chunks(all_chunks)
-            repo_context["repo_map"] = repo_map
-            repo_context["intelligence_summary"] = intelligence_summary
+            # Create session context
+            session_id = str(uuid.uuid4())
+            sessions[session_id] = {
+                "files": files_data,
+                "graph": G,
+                "search_index": LocalSearchIndex(),
+                "repo_map": repo_map,
+                "intelligence_summary": intelligence_summary
+            }
+            # Add chunks in a separate thread since TF-IDF fitting is CPU intensive
+            await asyncio.to_thread(sessions[session_id]["search_index"].add_chunks, all_chunks)
             
             rf_nodes = []
             for node, data in G.nodes(data=True):
@@ -426,6 +431,7 @@ async def upload_repo(file: UploadFile = File(...)):
                 
             return {
                 "message": "Upload successful",
+                "session_id": session_id,
                 "graph": {
                     "nodes": rf_nodes,
                     "edges": rf_edges,
@@ -458,6 +464,12 @@ async def chat_with_repo(request: ChatRequest):
     if not client:
         raise HTTPException(status_code=500, detail="Gemini API key is missing. Please check your .env file.")
     
+    session_id = request.session_id
+    if session_id not in sessions:
+        raise HTTPException(status_code=400, detail="Session not found. Please upload a repository first.")
+        
+    repo_context = sessions[session_id]
+
     if not repo_context["files"]:
         raise HTTPException(status_code=400, detail="Please upload a repository first so I can analyze it and answer your questions.")
 
@@ -467,7 +479,9 @@ async def chat_with_repo(request: ChatRequest):
     # 2. RAG: Retrieve relevant chunks
     # We increase top_k for architectural questions to give more breadth
     top_k = 12 if is_architectural else 8
-    relevant_chunks = repo_context["search_index"].search(request.message, top_k=top_k)
+    relevant_chunks = await asyncio.to_thread(
+        repo_context["search_index"].search, request.message, top_k=top_k
+    )
     
     # 3. Build Context
     context_str = ""
@@ -521,7 +535,8 @@ You have three primary sources of truth in the CONTEXT:
 7. Do NOT use general external knowledge about unrelated projects."""
 
     try:
-        response = call_gemini(
+        response = await asyncio.to_thread(
+            call_gemini,
             model_name="gemini-2.5-flash",
             contents=[context_str + f"\n\nUSER QUESTION: {request.message}"],
             system_instruction=system_instruction

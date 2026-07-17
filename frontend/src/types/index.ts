@@ -27,6 +27,7 @@ export interface GraphDataPayload {
 
 export interface UploadResponse {
   message: string;
+  session_id: string;
   graph: GraphDataPayload;
   files: FileMap;
 }

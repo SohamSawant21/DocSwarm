@@ -132,6 +132,7 @@ export default function Home() {
               <ErrorBoundary sectionName="Intelligence Panel">
                 <RightPanel 
                   key={uploadId} 
+                  sessionId={graphData.session_id}
                   selectedNodeId={selectedNodeId}
                   selectedNodeData={selectedNodeId && graphData ? graphData.files[selectedNodeId] : null}
                 />
