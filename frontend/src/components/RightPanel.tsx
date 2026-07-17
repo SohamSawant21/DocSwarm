@@ -103,8 +103,12 @@ export function RightPanel({
           </div>
         ) : (
           <div className="space-y-6 pt-4 pb-4">
-            {messages.map((msg) => (
-              <div key={msg.id} className={`flex gap-3 ${msg.sender === 'user' ? 'flex-row-reverse' : ''}`}>
+            {messages.map((msg, index) => (
+              <div 
+                key={msg.id} 
+                className={`flex gap-3 animate-slide-up-fade ${msg.sender === 'user' ? 'flex-row-reverse' : ''}`}
+                style={{ animationDelay: `${index > 0 && index === messages.length - 1 ? 0 : 0}ms` }}
+              >
                 {msg.sender === "ai" ? (
                   <div className="w-8 h-8 rounded-full bg-primary-container overflow-hidden flex-shrink-0 flex items-center justify-center text-primary border border-primary-fixed-dim">
                     <span className="material-symbols-outlined text-[16px]">smart_toy</span>
@@ -140,7 +144,7 @@ export function RightPanel({
               </div>
             ))}
             {isLoading && (
-              <div className="flex gap-3">
+              <div className="flex gap-3 animate-slide-up-fade">
                 <div className="w-8 h-8 rounded-full bg-primary-container overflow-hidden flex-shrink-0 flex items-center justify-center text-primary border border-primary-fixed-dim">
                   <span className="material-symbols-outlined text-[16px]">smart_toy</span>
                 </div>
@@ -179,7 +183,7 @@ export function RightPanel({
             <button 
               type="submit"
               disabled={isLoading || !input.trim()}
-              className="flex-shrink-0 w-8 h-8 rounded-full bg-primary text-on-primary flex items-center justify-center hover:bg-on-primary-fixed-variant hover:scale-105 transition-all shadow-md ml-3 disabled:opacity-50 disabled:hover:bg-primary disabled:hover:scale-100"
+              className="flex-shrink-0 w-8 h-8 rounded-full bg-primary text-on-primary flex items-center justify-center hover:bg-on-primary-fixed-variant hover:scale-105 active:scale-95 transition-all shadow-md ml-3 disabled:opacity-50 disabled:hover:bg-primary disabled:hover:scale-100 disabled:active:scale-100"
             >
               <span className="material-symbols-outlined text-[18px]">
                 arrow_upward

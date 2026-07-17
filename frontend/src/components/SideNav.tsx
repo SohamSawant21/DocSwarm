@@ -7,7 +7,7 @@ export function SideNav() {
           href="#"
         >
           <span className="material-symbols-outlined flex-shrink-0">description</span>
-          <span className="opacity-0 group-hover:opacity-100 transition-opacity font-ui-label text-ui-label">
+          <span className="opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all duration-200 font-ui-label text-ui-label transform -translate-x-2">
             AI Docs
           </span>
         </a>
@@ -16,7 +16,7 @@ export function SideNav() {
           href="#"
         >
           <span className="material-symbols-outlined flex-shrink-0">account_tree</span>
-          <span className="opacity-0 group-hover:opacity-100 transition-opacity font-ui-label text-ui-label">
+          <span className="opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all duration-200 font-ui-label text-ui-label transform -translate-x-2">
             DocGraph
           </span>
         </a>
@@ -27,7 +27,7 @@ export function SideNav() {
           href="#"
         >
           <span className="material-symbols-outlined flex-shrink-0">person</span>
-          <span className="opacity-0 group-hover:opacity-100 transition-opacity font-ui-label text-ui-label">
+          <span className="opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all duration-200 font-ui-label text-ui-label transform -translate-x-2">
             Profile
           </span>
         </a>

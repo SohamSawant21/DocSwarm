@@ -90,7 +90,7 @@ export default function Home() {
                   Select a .zip file containing your codebase to generate the
                   architecture graph.
                 </p>
-                <label className={`cursor-pointer bg-primary text-on-primary px-6 py-2 rounded-md font-ui-label text-ui-label transition-all duration-200 ${isUploading ? 'opacity-75 pointer-events-none' : 'hover:scale-[1.02] hover:bg-on-primary-fixed-variant'}`}>
+                <label className={`cursor-pointer bg-primary text-on-primary px-6 py-2 rounded-md font-ui-label text-ui-label transition-all duration-200 ${isUploading ? 'opacity-75 pointer-events-none' : 'hover:scale-[1.02] active:scale-[0.98] hover:bg-on-primary-fixed-variant'}`}>
                   {isUploading ? (
                     <div className="flex items-center gap-2">
                       <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
@@ -113,7 +113,7 @@ export default function Home() {
           ) : (
             <>
               {/* Left-Central Area with File Tree and DocGraph */}
-              <div className="flex-1 flex overflow-hidden">
+              <div className="flex-1 flex overflow-hidden animate-fade-in">
                 <ErrorBoundary sectionName="File Explorer">
                   <FileTree 
                     data={graphData} 

@@ -76,10 +76,10 @@ export function FileTree({
                 <div
                   key={path}
                   onClick={() => onSelectNode(isSelected ? null : path)}
-                  className={`flex items-center gap-3 cursor-pointer py-1.5 rounded px-1 group transition-colors ${
+                  className={`flex items-center gap-3 cursor-pointer py-1.5 rounded px-1 group transition-all duration-200 ${
                     isSelected 
                       ? "bg-primary text-on-primary hover:bg-on-primary-fixed-variant" 
-                      : "text-on-surface-variant hover:text-on-surface hover:bg-surface-variant"
+                      : "text-on-surface-variant hover:text-on-surface hover:bg-surface-variant hover:pl-2"
                   }`}
                 >
                   <span className={`material-symbols-outlined text-[16px] transition-colors shrink-0 ${
@@ -87,7 +87,7 @@ export function FileTree({
                   }`}>
                     {file.icon || "description"}
                   </span>
-                  <span className="truncate" title={path}>
+                  <span className="truncate transition-transform" title={path}>
                     {file.label}
                   </span>
                 </div>
