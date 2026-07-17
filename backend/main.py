@@ -288,8 +288,19 @@ def analyze_directory(extract_dir: str):
     files_data = {}
     all_chunks = []
     
-    for root, _, files in os.walk(extract_dir):
+    for root, dirs, files in os.walk(extract_dir):
+        # Exclude common build, environment, and system directories
+        dirs[:] = [d for d in dirs if d not in {
+            '.git', 'node_modules', 'venv', '.venv', 'env', '.env', 
+            '__pycache__', '.next', 'dist', 'build', 'out', 'target', 
+            '__MACOSX', '.idea', '.vscode'
+        }]
+        
         for file in files:
+            # Ignore hidden files and macOS resource forks
+            if file.startswith('.') or file.startswith('._'):
+                continue
+                
             if file.endswith(('.py', '.js', '.ts', '.jsx', '.tsx', '.md', '.txt', '.json')):
                 filepath = os.path.join(root, file)
                 rel_path = os.path.relpath(filepath, extract_dir)
@@ -348,14 +359,28 @@ def analyze_directory(extract_dir: str):
     return G, files_data, all_chunks
 
 def extract_and_analyze_zip(zip_path: str, extract_dir: str):
+    MAX_EXTRACTED_SIZE = 250 * 1024 * 1024 # 250MB limit
+    total_extracted_size = 0
+    
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        if not zip_ref.infolist():
+            raise ValueError("The uploaded ZIP file is empty.")
+            
         for member in zip_ref.infolist():
+            total_extracted_size += member.file_size
+            if total_extracted_size > MAX_EXTRACTED_SIZE:
+                raise ValueError("The repository is too large when extracted (exceeds 250MB). Please upload a smaller project.")
+                
             target_path = os.path.abspath(os.path.join(extract_dir, member.filename))
             if not target_path.startswith(extract_dir + os.sep) and target_path != extract_dir:
                 raise ValueError("Malicious archive detected: Path traversal attempt")
             zip_ref.extract(member, extract_dir)
             
     G, files_data, all_chunks = analyze_directory(extract_dir)
+    
+    if not files_data:
+        raise ValueError("The uploaded archive does not contain any supported source code files (e.g., .py, .js, .ts, .md). It may be empty, contain only unsupported formats, or only folders.")
+        
     repo_map = generate_repo_map(files_data, G)
     return G, files_data, all_chunks, repo_map
 
