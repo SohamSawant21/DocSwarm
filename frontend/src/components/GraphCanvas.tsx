@@ -12,7 +12,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import Editor from "@monaco-editor/react";
-import type { UploadResponse, CustomNodeData, GraphNode, GraphEdge, NodeDetail } from "@/types";
+import type { UploadResponse, CustomNodeData, GraphNode, GraphEdge } from "@/types";
 import type { ReactFlowInstance } from "@xyflow/react";
 
 function CustomNode({ data }: { data: CustomNodeData }) {

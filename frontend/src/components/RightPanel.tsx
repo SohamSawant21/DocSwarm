@@ -41,7 +41,15 @@ export function RightPanel({
     setInput("");
     setIsLoading(true);
 
-    const contextPayload: Record<string, any> = {};
+    const contextPayload: {
+      selectedFile?: {
+        id: string;
+        path: string;
+        imports: string[];
+        content: string;
+        role: string;
+      };
+    } = {};
     if (selectedNodeId && selectedNodeData) {
       contextPayload.selectedFile = {
         id: selectedNodeId,
