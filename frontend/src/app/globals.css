@@ -58,14 +58,14 @@
   --spacing-md: 16px;
   --spacing-container-max: 860px;
 
-  --font-body-lg: "Newsreader", serif;
-  --font-body-md: "Newsreader", serif;
-  --font-h1: "Newsreader", serif;
-  --font-display: "Newsreader", serif;
-  --font-h2: "Newsreader", serif;
-  --font-ui-label: "Newsreader", serif;
-  --font-code: "IBM Plex Mono", monospace;
-  --font-file-tree: "Newsreader", serif;
+  --font-body-lg: var(--font-inter), sans-serif;
+  --font-body-md: var(--font-inter), sans-serif;
+  --font-h1: var(--font-inter), sans-serif;
+  --font-display: var(--font-inter), sans-serif;
+  --font-h2: var(--font-inter), sans-serif;
+  --font-ui-label: var(--font-inter), sans-serif;
+  --font-code: var(--font-jetbrains), monospace;
+  --font-file-tree: var(--font-inter), sans-serif;
 }
 
 :root {

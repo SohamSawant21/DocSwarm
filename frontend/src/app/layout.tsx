@@ -1,5 +1,9 @@
 import type { Metadata } from "next";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+const jetbrains = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains" });
 
 export const metadata: Metadata = {
   title: "DocSwarm GraphOS",
@@ -20,7 +24,7 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="bg-background text-on-background font-body-md antialiased h-screen flex flex-col selection:bg-primary selection:text-on-primary overflow-hidden">
+      <body className={`${inter.variable} ${jetbrains.variable} bg-background text-on-background font-body-md antialiased h-screen flex flex-col selection:bg-primary selection:text-on-primary overflow-hidden`}>
         {children}
       </body>
     </html>

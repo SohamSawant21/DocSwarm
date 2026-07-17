@@ -167,9 +167,9 @@ export function RightPanel({
           </span>
         </div>
         <form className="max-w-3xl mx-auto w-full" onSubmit={handleSubmit}>
-          <div className="relative flex items-center bg-[#f6f6f8] rounded-full border border-[#d1d5db] px-4 py-2 shadow-sm group focus-within:border-primary/50 transition-all">
+          <div className="relative flex items-center bg-surface rounded-full border border-outline-variant px-4 py-2 shadow-sm group focus-within:border-primary transition-all">
             <input
-              className="flex-1 bg-transparent border-none p-0 font-body-md text-[14px] text-slate-600 placeholder-slate-400 focus:ring-0 focus:outline-none"
+              className="flex-1 bg-transparent border-none p-0 font-body-md text-[14px] text-on-surface placeholder-on-surface-variant focus:ring-0 focus:outline-none"
               placeholder="Ask about this context..."
               type="text"
               value={input}
@@ -179,7 +179,7 @@ export function RightPanel({
             <button 
               type="submit"
               disabled={isLoading || !input.trim()}
-              className="flex-shrink-0 w-8 h-8 rounded-full bg-[#0037b0] text-white flex items-center justify-center hover:bg-blue-800 transition-colors shadow-md ml-3 disabled:opacity-50 disabled:hover:bg-[#0037b0]"
+              className="flex-shrink-0 w-8 h-8 rounded-full bg-primary text-on-primary flex items-center justify-center hover:bg-on-primary-fixed-variant hover:scale-105 transition-all shadow-md ml-3 disabled:opacity-50 disabled:hover:bg-primary disabled:hover:scale-100"
             >
               <span className="material-symbols-outlined text-[18px]">
                 arrow_upward

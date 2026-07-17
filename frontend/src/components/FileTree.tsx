@@ -26,7 +26,7 @@ export function FileTree({
     : entries;
 
   return (
-    <div className="w-64 bg-[#F8F8F6] border-r border-[#E5E5E1] flex flex-col shrink-0 overflow-hidden">
+    <div className="w-64 bg-surface-bright border-r border-outline-variant flex flex-col shrink-0 overflow-hidden">
       {/* Header row */}
       <div className="px-6 pt-6 pb-3 flex items-center justify-between">
         {searchOpen ? (
@@ -66,7 +66,7 @@ export function FileTree({
 
       {/* File list */}
       <div className="flex-1 overflow-y-auto px-6 pb-6">
-        <div className="space-y-1 font-file-tree text-[14px]">
+        <div className="space-y-1 font-body-md text-[14px]">
           {filtered.length === 0 ? (
             <p className="text-outline text-[13px] py-2">No files match.</p>
           ) : (
@@ -78,8 +78,8 @@ export function FileTree({
                   onClick={() => onSelectNode(isSelected ? null : path)}
                   className={`flex items-center gap-3 cursor-pointer py-1.5 rounded px-1 group transition-colors ${
                     isSelected 
-                      ? "bg-primary text-on-primary hover:bg-primary-fixed hover:text-on-primary-fixed" 
-                      : "text-on-surface-variant hover:text-on-surface hover:bg-[#EFEFED]"
+                      ? "bg-primary text-on-primary hover:bg-on-primary-fixed-variant" 
+                      : "text-on-surface-variant hover:text-on-surface hover:bg-surface-variant"
                   }`}
                 >
                   <span className={`material-symbols-outlined text-[16px] transition-colors shrink-0 ${
