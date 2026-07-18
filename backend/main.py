@@ -345,16 +345,69 @@ def analyze_directory(extract_dir: str):
                 G.add_node(node_id, label=file, type="customNode", icon=icon)
 
     # Build edges
+    existing_files = set(files_data.keys())
+    
     for node_id, data in files_data.items():
+        node_dir = os.path.dirname(node_id)
+        is_python = node_id.endswith('.py')
+        
         for imp in data["imports"]:
-            clean_imp = re.sub(r'^(\./|\.\./|@/)+', '', imp)
-            for target_id, _ in files_data.items():
-                target_id_no_ext = os.path.splitext(target_id)[0]
-                if target_id_no_ext.endswith(f"/{clean_imp}") or \
-                   target_id_no_ext == clean_imp or \
-                   target_id_no_ext.endswith(f"/{clean_imp}/index"):
-                    G.add_edge(node_id, target_id)
+            resolved_targets = []
+            
+            if is_python:
+                clean_imp = imp.replace('.', '/')
+                resolved_targets.append(clean_imp)
+            else:
+                if imp.startswith('.'):
+                    resolved_path = os.path.normpath(os.path.join(node_dir, imp)).replace('\\', '/')
+                    resolved_targets.append(resolved_path)
+                else:
+                    clean_imp = re.sub(r'^[@~]/?', '', imp)
+                    resolved_targets.append(clean_imp)
+            
+            found_target = None
+            for target_base in resolved_targets:
+                if target_base in existing_files:
+                    found_target = target_base
                     break
+                
+                possible_paths = [
+                    f"{target_base}.js", f"{target_base}.ts", 
+                    f"{target_base}.jsx", f"{target_base}.tsx",
+                    f"{target_base}.mjs", f"{target_base}.cjs",
+                    f"{target_base}.py",
+                    f"{target_base}/index.js", f"{target_base}/index.ts", 
+                    f"{target_base}/index.jsx", f"{target_base}/index.tsx",
+                    f"{target_base}/__init__.py"
+                ]
+                
+                for p in possible_paths:
+                    if p in existing_files:
+                        found_target = p
+                        break
+                
+                if found_target:
+                    break
+            
+            if found_target:
+                G.add_edge(node_id, found_target)
+            else:
+                # Fallback heuristic for nested project roots or complex aliases
+                if is_python:
+                    clean_imp = imp.replace('.', '/')
+                else:
+                    clean_imp = re.sub(r'^(\./|\.\./)+', '', imp)
+                    clean_imp = re.sub(r'^[@~]/?', '', clean_imp)
+                    clean_imp = re.sub(r'\.(js|ts|jsx|tsx|mjs|cjs|py)$', '', clean_imp)
+                
+                for target_id in existing_files:
+                    target_id_no_ext = os.path.splitext(target_id)[0]
+                    if target_id_no_ext.endswith(f"/{clean_imp}") or \
+                       target_id_no_ext == clean_imp or \
+                       (not is_python and target_id_no_ext.endswith(f"/{clean_imp}/index")) or \
+                       (is_python and target_id_no_ext.endswith(f"/{clean_imp}/__init__")):
+                        G.add_edge(node_id, target_id)
+                        break
     
     return G, files_data, all_chunks
 
