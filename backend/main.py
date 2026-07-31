@@ -276,35 +276,18 @@ def analyze_directory(extract_dir: str):
                 all_chunks.extend(file_chunks)
 
                 imports = []
-                icon = "description"
                 if file.endswith('.py'):
                     imports = parse_python(content)
-                    icon = "data_object"
                 elif file.endswith(('.js', '.jsx', '.ts', '.tsx')):
                     imports = parse_js_ts(content)
-                    icon = "code"
-                elif file.endswith('.md'):
-                    icon = "article"
-                elif file.endswith('.json'):
-                    icon = "settings"
                 
-                if "middleware" in file.lower():
-                    icon = "lock"
-                elif "db" in file.lower() or "store" in file.lower():
-                    icon = "database"
-                elif "api" in file.lower() or "route" in file.lower():
-                    icon = "api"
-                elif "service" in file.lower():
-                    icon = "group"
-                    
                 files_data[node_id] = {
                     "label": file,
                     "imports": imports,
-                    "icon": icon,
                     "content": content
                 }
                 
-                G.add_node(node_id, label=file, type="customNode", icon=icon)
+                G.add_node(node_id, label=file, type="customNode")
 
     # Build edges
     existing_files = set(files_data.keys())
@@ -452,7 +435,7 @@ async def upload_repo(file: UploadFile = File(...)):
                 rf_nodes.append({
                     "id": node,
                     "position": {"x": 0, "y": 0},
-                    "data": {"label": data.get("label", node), "icon": data.get("icon", "description")},
+                    "data": {"label": data.get("label", node)},
                     "type": "customNode"
                 })
                 
