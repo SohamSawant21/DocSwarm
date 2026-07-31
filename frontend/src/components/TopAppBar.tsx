@@ -16,12 +16,6 @@ export function TopAppBar({ onReset }: { onReset?: () => void }) {
             Upload New Repository
           </button>
         )}
-        <button className="text-on-surface-variant hover:bg-surface-variant hover:text-on-surface active:scale-95 transition-all ease-in-out duration-200 p-2 rounded-full flex items-center justify-center">
-          <span className="material-symbols-outlined text-[20px]">help</span>
-        </button>
-        <button className="text-on-surface-variant hover:bg-surface-variant hover:text-on-surface active:scale-95 transition-all ease-in-out duration-200 p-2 rounded-full flex items-center justify-center">
-          <span className="material-symbols-outlined text-[20px]">settings</span>
-        </button>
       </div>
     </header>
   );

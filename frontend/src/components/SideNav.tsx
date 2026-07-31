@@ -21,17 +21,6 @@ export function SideNav() {
           </span>
         </a>
       </div>
-      <div className="flex flex-col gap-2 w-full mb-4">
-        <a
-          className="flex items-center gap-4 px-4 py-3 text-on-surface-variant border-l-2 border-transparent hover:text-on-surface hover:bg-surface-variant w-full whitespace-nowrap overflow-hidden transition-colors"
-          href="#"
-        >
-          <span className="material-symbols-outlined flex-shrink-0">person</span>
-          <span className="opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all duration-200 font-ui-label text-ui-label transform -translate-x-2">
-            Profile
-          </span>
-        </a>
-      </div>
     </nav>
   );
 }
