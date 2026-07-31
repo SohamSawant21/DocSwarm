@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { UploadResponse, FileData } from "@/types";
+import { getIconForFile } from "@/utils/fileIcons";
 
 export function FileTree({ 
   data,
@@ -72,6 +73,7 @@ export function FileTree({
           ) : (
             filtered.map(([path, file]) => {
               const isSelected = path === selectedNodeId;
+              const Icon = getIconForFile(file.label).icon;
               return (
                 <div
                   key={path}
@@ -82,11 +84,13 @@ export function FileTree({
                       : "text-on-surface-variant hover:text-on-surface hover:bg-surface-variant hover:pl-2"
                   }`}
                 >
-                  <span className={`material-symbols-outlined text-[16px] transition-colors shrink-0 ${
-                    isSelected ? "text-on-primary" : "text-outline group-hover:text-primary"
-                  }`}>
-                    {file.icon || "description"}
-                  </span>
+                  <Icon 
+                    size={16} 
+                    strokeWidth={1.5}
+                    className={`transition-colors shrink-0 ${
+                      isSelected ? "text-on-primary" : "text-outline group-hover:text-primary"
+                    }`}
+                  />
                   <span className="truncate transition-transform" title={path}>
                     {file.label}
                   </span>

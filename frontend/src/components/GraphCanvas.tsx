@@ -14,6 +14,7 @@ import "@xyflow/react/dist/style.css";
 import Editor from "@monaco-editor/react";
 import type { UploadResponse, CustomNodeData, GraphNode, GraphEdge } from "@/types";
 import type { ReactFlowInstance } from "@xyflow/react";
+import { getIconForFile } from "@/utils/fileIcons";
 
 function CustomNode({ data }: { data: CustomNodeData }) {
   return (
@@ -28,13 +29,16 @@ function CustomNode({ data }: { data: CustomNodeData }) {
               : "bg-surface-container border-outline-variant group-hover:border-primary"
           }`}
         >
-          <span
-            className={`material-symbols-outlined text-[24px] ${
-              data.highlight ? "text-on-primary-fixed" : "text-on-surface"
-            }`}
-          >
-            {data.icon}
-          </span>
+          {(() => {
+            const Icon = getIconForFile(data.label || "").icon;
+            return (
+              <Icon
+                size={24}
+                strokeWidth={1.5}
+                className={data.highlight ? "text-on-primary-fixed" : "text-on-surface"}
+              />
+            );
+          })()}
         </div>
         <span
           className={`font-ui-label text-ui-label ${
@@ -204,9 +208,16 @@ export function GraphCanvas({
           <div className="absolute right-6 top-6 bottom-6 w-80 bg-surface-bright border border-surface-variant rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.03)] flex flex-col overflow-hidden z-30 pointer-events-auto max-h-[calc(100%-48px)]">
             <div className="p-4 border-b border-surface-variant flex justify-between items-center bg-surface shrink-0">
               <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-primary text-[20px]">
-                  {selectedNode.icon || "description"}
-                </span>
+                {(() => {
+                  const Icon = getIconForFile(selectedNode.label || "").icon;
+                  return (
+                    <Icon
+                      size={20}
+                      strokeWidth={1.75}
+                      className="text-primary"
+                    />
+                  );
+                })()}
                 <h3 className="font-ui-label text-ui-label text-on-surface truncate">
                   {selectedNode.label}
                 </h3>

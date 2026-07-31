@@ -3,7 +3,7 @@ import { Node, Edge } from '@xyflow/react';
 export interface FileData {
   label: string;
   imports: string[];
-  icon: string;
+  icon?: string;
   content: string;
 }
 
@@ -13,7 +13,7 @@ export interface FileMap {
 
 export interface CustomNodeData extends Record<string, unknown> {
   label: string;
-  icon: string;
+  icon?: string;
   highlight?: boolean;
 }
 
