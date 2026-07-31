@@ -103,70 +103,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-async def generate_intelligence_report(files_data: Dict[str, Any], repo_map: str) -> str:
-    """
-    Generates a structured Evidence-Based Engineering Review during the upload phase.
-    """
-    if not client:
-        return "Intelligence report generation skipped: Gemini API key missing."
 
-    # 1. Identify Critical Files for Context
-    critical_files = {}
-    priority_patterns = [
-        'readme.md', 'package.json', 'requirements.txt', 'main.py', 
-        'index.js', 'app.tsx', 'next.config', 'tsconfig.json', 'dockerfile'
-    ]
-    
-    for path, data in files_data.items():
-        name = os.path.basename(path).lower()
-        if any(p in name for p in priority_patterns):
-            # Limit content to first 3000 chars per critical file to control tokens
-            critical_files[path] = data['content'][:3000]
-
-    # 2. Prepare the prompt for the "Architect's Pass"
-    analysis_prompt = f"""You are a Senior Principal Software Architect performing a deep-dive analysis of a repository.
-    
-### INPUT DATA
-1. REPOSITORY BLUEPRINT (Structure & Dependencies):
-{repo_map}
-
-2. CRITICAL FILE CONTENTS:
-{chr(10).join([f"--- FILE: {p} ---\n{c}\n" for p, c in critical_files.items()])}
-
-### TASK
-Generate a concise, structured 'Evidence-Based Engineering Review' (500-1500 words).
-Focus ONLY on facts supported by the provided data.
-
-### REQUIRED SECTIONS
-1. TECHNOLOGY STACK: List languages, frameworks, and versions.
-2. MAJOR COMPONENTS: Identify the core modules and their responsibilities.
-3. DATA FLOW: Trace the lifecycle of data (e.g., UI -> API -> Logic).
-4. ARCHITECTURAL PATTERNS: Classify the design (e.g., Monolith, Client-Server, RAG).
-5. EVIDENCE-BASED STRENGTHS: List what is well-implemented (cite files).
-6. EVIDENCE-BASED RISKS: Identify specific technical risks (cite files and explain evidence).
-7. IMPROVEMENT OPPORTUNITIES: Suggest specific refactors (cite files and provide rationale).
-
-### CONSTRAINTS
-- Be extremely specific. Use file names and code patterns.
-- Avoid generic praise or criticism.
-- If you cite a risk, you MUST explain the evidence (e.g., "File X uses global state which prevents Y").
-"""
-
-    try:
-        # Use a slightly higher temperature (0.2) for creative architectural synthesis
-        response = await asyncio.to_thread(
-            client.models.generate_content,
-            model="gemini-2.0-flash",
-            contents=[analysis_prompt],
-            config=types.GenerateContentConfig(
-                system_instruction="You are an expert software reviewer. Provide a high-density, evidence-based technical report.",
-                temperature=0.2,
-            )
-        )
-        return response.text or "Failed to generate report."
-    except Exception as e:
-        print(f"Intelligence Generation Error: {str(e)}")
-        return f"Error generating intelligence report: {str(e)}"
 
 def classify_role(file_path: str, content: str) -> str:
     path_lower = file_path.lower()
@@ -474,17 +411,13 @@ async def upload_repo(file: UploadFile = File(...)):
             except zipfile.BadZipFile:
                 raise HTTPException(status_code=400, detail="Invalid or corrupted ZIP file.")
 
-            # Generate Evidence-Based Engineering Review
-            intelligence_summary = await generate_intelligence_report(files_data, repo_map)
-            
             # Create session context
             session_id = str(uuid.uuid4())
             sessions[session_id] = {
                 "files": files_data,
                 "graph": G,
                 "search_index": LocalSearchIndex(),
-                "repo_map": repo_map,
-                "intelligence_summary": intelligence_summary
+                "repo_map": repo_map
             }
             # Add chunks in a separate thread since TF-IDF fitting is CPU intensive
             await asyncio.to_thread(sessions[session_id]["search_index"].add_chunks, all_chunks)
@@ -577,11 +510,7 @@ async def chat_with_repo(request: ChatRequest):
     if repo_context["repo_map"]:
         context_str += f"{repo_context['repo_map']}\n\n"
 
-    # Inject Evidence-Based Engineering Review
-    if repo_context["intelligence_summary"]:
-        context_str += "### EVIDENCE-BASED ENGINEERING REVIEW\n"
-        context_str += f"{repo_context['intelligence_summary']}\n\n"
-    
+
     if not relevant_chunks:
         # Fallback to some generic info if search returns nothing but we have files
         context_str += "CODE SNIPPETS: No direct matches found, but here is a list of available files:\n"
@@ -592,25 +521,23 @@ async def chat_with_repo(request: ChatRequest):
             context_str += f"--- FILE: {chunk.file_path} (Lines {chunk.start_line}-{chunk.end_line}) ---\n{chunk.content}\n\n"
 
     if is_architectural:
-        context_str += "\nNOTE: The user is asking a structural or architectural question. Prioritize the REPOSITORY ARCHITECTURE BLUEPRINT and ENGINEERING REVIEW above for your reasoning.\n"
+        context_str += "\nNOTE: The user is asking a structural or architectural question. Prioritize the REPOSITORY ARCHITECTURE BLUEPRINT for mapping file roles and actively analyze the CODE SNIPPETS to deduce potential flaws or architectural patterns.\n"
 
     system_instruction = """You are DocSwarm AI, a Senior Software Architect and Repository Intelligence Assistant.
-Your goal is to answer questions about the provided codebase using the provided context.
+Your goal is to actively analyze the provided codebase context to answer the user's questions, including complex architectural or strategic inquiries.
 
 ### YOUR KNOWLEDGE SOURCE
-You have three primary sources of truth in the CONTEXT:
-1. REPOSITORY ARCHITECTURE BLUEPRINT: Use this for mapping file roles and dependencies.
-2. EVIDENCE-BASED ENGINEERING REVIEW: Use this for high-level questions about project purpose, tech stack, data flow, architectural patterns, and identifying strengths/risks.
-3. CODE SNIPPETS: Use these for specific implementation details, function lookups, and bug analysis.
+You have two primary sources of truth in the CONTEXT:
+1. REPOSITORY ARCHITECTURE BLUEPRINT: Use this for mapping file roles and dependencies, and for understanding the high-level system layout.
+2. CODE SNIPPETS: Use these for specific implementation details, function lookups, bug analysis, and to extract evidence for architectural strengths or flaws.
 
 ### STRICT RULES:
-1. Use the provided context as your EXCLUSIVE knowledge source.
-2. For ARCHITECTURAL and STRATEGIC questions (overview, flow, design, risks, improvements), synthesize your answer primarily from the BLUEPRINT and ENGINEERING REVIEW.
-3. For IMPLEMENTATION questions (how X works, where is Y), use the CODE SNIPPETS.
-4. If the answer is not in any source, say: "I could not find that information in the uploaded documents."
-5. Mention file names when referring to code or structure.
-6. Keep responses factual, professional, and grounded.
-7. Do NOT use general external knowledge about unrelated projects."""
+1. Use the provided context as your primary knowledge source, but apply your expertise as a Software Architect to interpret it.
+2. For ARCHITECTURAL and STRATEGIC questions (e.g., flaws, overview, design, improvements), dynamically analyze the provided BLUEPRINT and CODE SNIPPETS. Deduce potential flaws based on common software engineering anti-patterns (e.g., tight coupling, missing error handling, monolithic structures). If you lack complete visibility, state your inferences clearly based on the provided evidence.
+3. For IMPLEMENTATION questions (e.g., how X works, where is Y), use the CODE SNIPPETS.
+4. If the answer cannot be reasonably inferred from any source, say: "I could not find that information in the uploaded documents."
+5. Always mention file names when referring to code, structure, or when citing evidence for an architectural claim.
+6. Keep responses factual, professional, and grounded in the provided codebase."""
 
     try:
         response = await asyncio.to_thread(
