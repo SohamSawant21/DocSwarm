@@ -14,7 +14,6 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 # Load environment variables
@@ -36,36 +35,62 @@ class CodeChunk:
         self.start_line = start_line
         self.end_line = end_line
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    retry=retry_if_exception_type(Exception)
+)
+def get_embeddings(texts: List[str]) -> List[List[float]]:
+    if not client:
+        return [[0.0] * 768] * len(texts)
+    response = client.models.embed_content(
+        model="text-embedding-004",
+        contents=texts
+    )
+    return [e.values for e in response.embeddings]
+
 class LocalSearchIndex:
     def __init__(self):
         self.chunks: List[CodeChunk] = []
-        self.vectorizer = TfidfVectorizer(stop_words='english', lowercase=True)
-        self.tfidf_matrix = None
+        self.embeddings = None
 
     def add_chunks(self, chunks: List[CodeChunk]):
         self.chunks = chunks
         if not chunks:
             return
         
-        # Combine file path and content for better context matching
         corpus = [f"FILE: {c.file_path}\n{c.content}" for c in chunks]
-        self.tfidf_matrix = self.vectorizer.fit_transform(corpus)
+        
+        batch_size = 100
+        all_embeddings = []
+        for i in range(0, len(corpus), batch_size):
+            batch = corpus[i:i+batch_size]
+            try:
+                emb = get_embeddings(batch)
+                all_embeddings.extend(emb)
+            except Exception as e:
+                print(f"Embedding error: {e}")
+                all_embeddings.extend([[0.0] * 768] * len(batch))
+                
+        self.embeddings = np.array(all_embeddings)
 
     def search(self, query: str, top_k: int = 5) -> List[CodeChunk]:
-        if not self.chunks or self.tfidf_matrix is None:
+        if not self.chunks or self.embeddings is None or len(self.embeddings) == 0:
             return []
         
-        query_vec = self.vectorizer.transform([query])
-        similarities = cosine_similarity(query_vec, self.tfidf_matrix).flatten()
-        
-        # Get top indices
+        try:
+            query_emb = get_embeddings([query])
+            query_vec = np.array(query_emb[0]).reshape(1, -1)
+        except Exception as e:
+            print(f"Query embedding error: {e}")
+            return []
+            
+        similarities = cosine_similarity(query_vec, self.embeddings).flatten()
         top_indices = similarities.argsort()[-top_k:][::-1]
         
-        # Return chunks with similarity > 0
         results = []
         for idx in top_indices:
-            if similarities[idx] > 0:
-                results.append(self.chunks[idx])
+            results.append(self.chunks[idx])
         return results
 
 def chunk_file(file_path: str, content: str, chunk_size: int = 50, overlap: int = 10) -> List[CodeChunk]:
@@ -496,6 +521,31 @@ async def chat_with_repo(request: ChatRequest):
     
     # 3. Build Context
     context_str = ""
+
+    # Graph-Augmented Context for Architectural Queries
+    if is_architectural:
+        G = repo_context["graph"]
+        files_data = repo_context["files"]
+        
+        # Identify central files based on in-degree (files that are heavily imported)
+        in_degrees = dict(G.in_degree())
+        top_central_files = sorted(in_degrees.items(), key=lambda x: x[1], reverse=True)[:3]
+        
+        if top_central_files:
+            context_str += "### CRITICAL ARCHITECTURAL COMPONENTS (GRAPH DEPENDENCIES)\n"
+            context_str += "The following files are central to the repository architecture based on import dependencies:\n\n"
+            
+            for node, degree in top_central_files:
+                if node in files_data:
+                    content = files_data[node]['content']
+                    context_str += f"--- CENTRAL FILE: {node} (Referenced {degree} times) ---\n"
+                    
+                    out_edges = list(G.successors(node))
+                    if out_edges:
+                        context_str += f"Dependencies: {', '.join(out_edges[:5])}\n"
+                    
+                    context_str += f"Content Snippet:\n{content[:1500]}\n\n"
+
     
     # Inject Selected File Context
     selected_file = request.context.get("selectedFile")
