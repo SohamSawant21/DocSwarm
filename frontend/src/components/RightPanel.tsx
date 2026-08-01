@@ -1,6 +1,10 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { endpoints } from "@/lib/api";
+import type { FileData } from "@/types";
 
 type Message = {
   id: string;
@@ -8,7 +12,15 @@ type Message = {
   text: string;
 };
 
-export function RightPanel() {
+export function RightPanel({ 
+  sessionId,
+  selectedNodeId, 
+  selectedNodeData 
+}: { 
+  sessionId?: string;
+  selectedNodeId?: string | null;
+  selectedNodeData?: FileData | null;
+}) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -31,17 +43,43 @@ export function RightPanel() {
     setInput("");
     setIsLoading(true);
 
+    const contextPayload: {
+      selectedFile?: {
+        id: string;
+        path: string;
+        imports: string[];
+        content: string;
+        role: string;
+      };
+    } = {};
+    if (selectedNodeId && selectedNodeData) {
+      contextPayload.selectedFile = {
+        id: selectedNodeId,
+        path: selectedNodeId,
+        imports: selectedNodeData.imports,
+        content: selectedNodeData.content,
+        role: "File" // Fallback role, can be enhanced later
+      };
+    }
+
     try {
-      const response = await fetch("http://localhost:8000/api/chat", {
+      const response = await fetch(endpoints.chat, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ message: userMsg.text, context: {} }),
+        body: JSON.stringify({ message: userMsg.text, session_id: sessionId, context: contextPayload }),
       });
       const data = await response.json();
       
-      const aiMsg: Message = { id: (Date.now() + 1).toString(), sender: "ai", text: data.reply || "Error: No response from AI." };
+      let replyText = data.reply;
+      if (!response.ok) {
+        replyText = `Error: ${data.detail || "Server error"}`;
+      } else if (!replyText) {
+        replyText = "Error: No response from AI.";
+      }
+      
+      const aiMsg: Message = { id: (Date.now() + 1).toString(), sender: "ai", text: replyText };
       setMessages((prev) => [...prev, aiMsg]);
     } catch (error) {
       console.error("Chat error:", error);
@@ -65,8 +103,12 @@ export function RightPanel() {
           </div>
         ) : (
           <div className="space-y-6 pt-4 pb-4">
-            {messages.map((msg) => (
-              <div key={msg.id} className={`flex gap-3 ${msg.sender === 'user' ? 'flex-row-reverse' : ''}`}>
+            {messages.map((msg, index) => (
+              <div 
+                key={msg.id} 
+                className={`flex gap-3 animate-slide-up-fade ${msg.sender === 'user' ? 'flex-row-reverse' : ''}`}
+                style={{ animationDelay: `${index > 0 && index === messages.length - 1 ? 0 : 0}ms` }}
+              >
                 {msg.sender === "ai" ? (
                   <div className="w-8 h-8 rounded-full bg-primary-container overflow-hidden flex-shrink-0 flex items-center justify-center text-primary border border-primary-fixed-dim">
                     <span className="material-symbols-outlined text-[16px]">smart_toy</span>
@@ -83,18 +125,26 @@ export function RightPanel() {
                       {msg.sender === "ai" ? "DocSwarm AI" : "You"}
                     </span>
                   </div>
-                  <p className={`font-body-md text-[14px] p-3 rounded-lg border inline-block text-left ${
+                  <div className={`font-body-md p-3 rounded-lg border inline-block text-left ${
                     msg.sender === 'user' 
                       ? 'bg-[#F1F1EF] border-transparent text-slate-800 rounded-tr-none' 
                       : 'bg-surface-container-low border-surface-variant text-on-surface-variant rounded-tl-none'
                   }`}>
-                    {msg.text}
-                  </p>
+                    {msg.sender === "ai" ? (
+                      <div className="prose-chat">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {msg.text}
+                        </ReactMarkdown>
+                      </div>
+                    ) : (
+                      <p className="text-[14px]">{msg.text}</p>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
             {isLoading && (
-              <div className="flex gap-3">
+              <div className="flex gap-3 animate-slide-up-fade">
                 <div className="w-8 h-8 rounded-full bg-primary-container overflow-hidden flex-shrink-0 flex items-center justify-center text-primary border border-primary-fixed-dim">
                   <span className="material-symbols-outlined text-[16px]">smart_toy</span>
                 </div>
@@ -115,10 +165,15 @@ export function RightPanel() {
 
       {/* Persistent Chat Bar at bottom of right column */}
       <div className="p-4 border-t border-surface-variant bg-surface-bright shrink-0">
+        <div className="max-w-3xl mx-auto w-full mb-2">
+          <span className="text-[11px] font-ui-label text-on-surface-variant uppercase tracking-wider">
+            Current Context: <strong className="text-primary truncate">{selectedNodeId || "Repository Overview"}</strong>
+          </span>
+        </div>
         <form className="max-w-3xl mx-auto w-full" onSubmit={handleSubmit}>
-          <div className="relative flex items-center bg-[#f6f6f8] rounded-full border border-[#d1d5db] px-4 py-2 shadow-sm group focus-within:border-primary/50 transition-all">
+          <div className="relative flex items-center bg-surface rounded-full border border-outline-variant px-4 py-2 shadow-sm group focus-within:border-primary transition-all">
             <input
-              className="flex-1 bg-transparent border-none p-0 font-body-md text-[14px] text-slate-600 placeholder-slate-400 focus:ring-0 focus:outline-none"
+              className="flex-1 bg-transparent border-none p-0 font-body-md text-[14px] text-on-surface placeholder-on-surface-variant focus:ring-0 focus:outline-none"
               placeholder="Ask about this context..."
               type="text"
               value={input}
@@ -128,7 +183,7 @@ export function RightPanel() {
             <button 
               type="submit"
               disabled={isLoading || !input.trim()}
-              className="flex-shrink-0 w-8 h-8 rounded-full bg-[#0037b0] text-white flex items-center justify-center hover:bg-blue-800 transition-colors shadow-md ml-3 disabled:opacity-50 disabled:hover:bg-[#0037b0]"
+              className="flex-shrink-0 w-8 h-8 rounded-full bg-primary text-on-primary flex items-center justify-center hover:bg-on-primary-fixed-variant hover:scale-105 active:scale-95 transition-all shadow-md ml-3 disabled:opacity-50 disabled:hover:bg-primary disabled:hover:scale-100 disabled:active:scale-100"
             >
               <span className="material-symbols-outlined text-[18px]">
                 arrow_upward

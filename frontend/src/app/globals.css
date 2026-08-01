@@ -58,14 +58,38 @@
   --spacing-md: 16px;
   --spacing-container-max: 860px;
 
-  --font-body-lg: "Newsreader", serif;
-  --font-body-md: "Newsreader", serif;
-  --font-h1: "Newsreader", serif;
-  --font-display: "Newsreader", serif;
-  --font-h2: "Newsreader", serif;
-  --font-ui-label: "Newsreader", serif;
-  --font-code: "IBM Plex Mono", monospace;
-  --font-file-tree: "Newsreader", serif;
+  --font-body-lg: var(--font-inter), sans-serif;
+  --font-body-md: var(--font-inter), sans-serif;
+  --font-h1: var(--font-inter), sans-serif;
+  --font-display: var(--font-inter), sans-serif;
+  --font-h2: var(--font-inter), sans-serif;
+  --font-ui-label: var(--font-inter), sans-serif;
+  --font-code: var(--font-jetbrains), monospace;
+  --font-file-tree: var(--font-inter), sans-serif;
+}
+
+@keyframes slideUpFade {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-slide-up-fade {
+  animation: slideUpFade 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
 }
 
 :root {
@@ -158,4 +182,64 @@ body {
 /* React Flow customizations */
 .react-flow__node {
   border-radius: 9999px;
+}
+
+/* Chat Prose Styles */
+.prose-chat {
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.prose-chat p {
+  margin-bottom: 0.75rem;
+}
+
+.prose-chat p:last-child {
+  margin-bottom: 0;
+}
+
+.prose-chat ul {
+  list-style-type: disc;
+  margin-left: 1.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.prose-chat ol {
+  list-style-type: decimal;
+  margin-left: 1.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.prose-chat li {
+  margin-bottom: 0.25rem;
+}
+
+.prose-chat code {
+  background-color: var(--color-surface-container);
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  font-family: var(--font-code);
+  font-size: 0.85em;
+}
+
+.prose-chat pre {
+  background-color: var(--color-surface-container-highest);
+  padding: 0.75rem;
+  border-radius: 0.375rem;
+  overflow-x: auto;
+  margin-bottom: 0.75rem;
+  font-family: var(--font-code);
+  font-size: 0.85em;
+}
+
+.prose-chat strong {
+  font-weight: 600;
+  color: var(--color-on-surface);
+}
+
+.prose-chat h1, .prose-chat h2, .prose-chat h3 {
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  color: var(--color-on-surface);
 }

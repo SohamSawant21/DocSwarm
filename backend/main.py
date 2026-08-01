@@ -2,14 +2,120 @@ import os
 import zipfile
 import tempfile
 import re
+import asyncio
 import networkx as nx
-from fastapi import FastAPI, UploadFile, File
+import numpy as np
+import uuid
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+from dotenv import load_dotenv
+from google import genai
+from google.genai import types
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from sklearn.metrics.pairwise import cosine_similarity
+
+# Load environment variables
+load_dotenv()
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# Initialize Gemini Client
+client = None
+if GEMINI_API_KEY:
+    client = genai.Client(api_key=GEMINI_API_KEY)
+
+# --- RAG UTILITIES ---
+
+class CodeChunk:
+    def __init__(self, file_path: str, content: str, start_line: int, end_line: int):
+        self.file_path = file_path
+        self.content = content
+        self.start_line = start_line
+        self.end_line = end_line
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    retry=retry_if_exception_type(Exception)
+)
+def get_embeddings(texts: List[str]) -> List[List[float]]:
+    if not client:
+        return [[0.0] * 768] * len(texts)
+    response = client.models.embed_content(
+        model="text-embedding-004",
+        contents=texts
+    )
+    return [e.values for e in response.embeddings]
+
+class LocalSearchIndex:
+    def __init__(self):
+        self.chunks: List[CodeChunk] = []
+        self.embeddings = None
+
+    def add_chunks(self, chunks: List[CodeChunk]):
+        self.chunks = chunks
+        if not chunks:
+            return
+        
+        corpus = [f"FILE: {c.file_path}\n{c.content}" for c in chunks]
+        
+        batch_size = 100
+        all_embeddings = []
+        for i in range(0, len(corpus), batch_size):
+            batch = corpus[i:i+batch_size]
+            try:
+                emb = get_embeddings(batch)
+                all_embeddings.extend(emb)
+            except Exception as e:
+                print(f"Embedding error: {e}")
+                all_embeddings.extend([[0.0] * 768] * len(batch))
+                
+        self.embeddings = np.array(all_embeddings)
+
+    def search(self, query: str, top_k: int = 5) -> List[CodeChunk]:
+        if not self.chunks or self.embeddings is None or len(self.embeddings) == 0:
+            return []
+        
+        try:
+            query_emb = get_embeddings([query])
+            query_vec = np.array(query_emb[0]).reshape(1, -1)
+        except Exception as e:
+            print(f"Query embedding error: {e}")
+            return []
+            
+        similarities = cosine_similarity(query_vec, self.embeddings).flatten()
+        top_indices = similarities.argsort()[-top_k:][::-1]
+        
+        results = []
+        for idx in top_indices:
+            results.append(self.chunks[idx])
+        return results
+
+def chunk_file(file_path: str, content: str, chunk_size: int = 50, overlap: int = 10) -> List[CodeChunk]:
+    lines = content.splitlines()
+    chunks = []
+    
+    if len(lines) <= chunk_size:
+        chunks.append(CodeChunk(file_path, content, 1, len(lines)))
+        return chunks
+
+    start = 0
+    while start < len(lines):
+        end = min(start + chunk_size, len(lines))
+        chunk_content = "\n".join(lines[start:end])
+        chunks.append(CodeChunk(file_path, chunk_content, start + 1, end))
+        start += (chunk_size - overlap)
+        
+    return chunks
+
+# In-memory storage for uploaded repository contexts per session
+sessions: Dict[str, Dict[str, Any]] = {}
 
 class ChatRequest(BaseModel):
     message: str
+    session_id: str
     context: Dict[str, Any] = {}
 
 app = FastAPI(title="DocSwarm GraphOS API")
@@ -22,16 +128,105 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+
+def classify_role(file_path: str, content: str) -> str:
+    path_lower = file_path.lower()
+    name = os.path.basename(path_lower)
+    
+    if name in ['main.py', 'index.js', 'app.tsx', 'app.ts', 'server.js']:
+        return "Entry Points"
+    if any(k in path_lower for k in ['route', 'api', 'endpoint', 'controller']):
+        return "Routing & Controllers"
+    if any(k in path_lower for k in ['model', 'schema', 'db', 'database', 'entity']):
+        return "Data Models & Persistence"
+    if any(k in path_lower for k in ['service', 'logic', 'manager', 'util', 'helper']):
+        return "Services & Utilities"
+    if any(k in path_lower for k in ['component', 'ui', 'view', 'page', 'screen']):
+        return "UI Components"
+    if name.endswith(('.json', '.yaml', '.yml', '.env', 'config.js', 'config.ts', 'requirements.txt')):
+        return "Configuration"
+    if name.endswith(('.md', '.txt')):
+        return "Documentation"
+    return "Other"
+
+def generate_repo_map(files_data: Dict[str, Any], G: nx.DiGraph) -> str:
+    blueprint = "### REPOSITORY ARCHITECTURE BLUEPRINT\n\n"
+    
+    # 1. Project Overview (Search for README)
+    overview = "No README found."
+    for path, data in files_data.items():
+        if path.lower() == 'readme.md':
+            content = data['content']
+            # Take first 500 chars as summary
+            overview = content[:500] + ("..." if len(content) > 500 else "")
+            break
+    blueprint += f"#### 1. PROJECT OVERVIEW\n{overview}\n\n"
+    
+    # 2. Architectural Roles
+    roles = {
+        "Entry Points": [],
+        "Routing & Controllers": [],
+        "Data Models & Persistence": [],
+        "Services & Utilities": [],
+        "UI Components": [],
+        "Configuration": [],
+        "Documentation": []
+    }
+    
+    for path, data in files_data.items():
+        role = classify_role(path, data['content'])
+        if role in roles:
+            roles[role].append(path)
+            
+    blueprint += "#### 2. ARCHITECTURAL ROLES\n"
+    for role, paths in roles.items():
+        if paths:
+            file_list = ", ".join(paths[:10]) + ("..." if len(paths) > 10 else "")
+            blueprint += f"- **{role}**: {file_list}\n"
+    blueprint += "\n"
+    
+    # 3. Logical Dependency Graph (Top Relationships)
+    blueprint += "#### 3. LOGICAL DEPENDENCY GRAPH (TOP RELATIONSHIPS)\n"
+    edges = list(G.edges())
+    for u, v in edges[:20]:
+        blueprint += f"- `{u}` --> depends on --> `{v}`\n"
+    if len(edges) > 20:
+        blueprint += f"- ... (total {len(edges)} relationships)\n"
+    blueprint += "\n"
+    
+    # 4. Directory Tree
+    blueprint += "#### 4. DIRECTORY TREE\n"
+    dirs = set()
+    for path in files_data.keys():
+        parts = path.split('/')
+        if len(parts) > 1:
+            dirs.add(f"- {parts[0]}/")
+            if len(parts) > 2:
+                dirs.add(f"  - {parts[0]}/{parts[1]}/")
+    blueprint += "\n".join(sorted(list(dirs))[:30])
+    
+    return blueprint
+
+def detect_architectural_intent(query: str) -> bool:
+    arch_keywords = {
+        "architecture", "structure", "design", "flow", "work", "explain", 
+        "summarize", "overview", "project", "how does", "alternative", 
+        "improvement", "weakness", "pattern", "layout", "purpose"
+    }
+    query_lower = query.lower()
+    return any(keyword in query_lower for keyword in arch_keywords)
+
 def parse_js_ts(file_content: str):
     imports = []
-    # match `import { X } from './path'` or `import X from "path"`
-    import_pattern = re.compile(r'import\s+.*?\s+from\s+[\'"](.*?)[\'"]', re.MULTILINE | re.DOTALL)
-    require_pattern = re.compile(r'require\([\'"](.*?)[\'"]\)', re.MULTILINE)
+    import_pattern = re.compile(r'(?:import|export)\s+.*?\s+from\s+[\'"](.*?)[\'"]', re.MULTILINE | re.DOTALL)
+    dynamic_pattern = re.compile(r'(?:require|import)\([\'"](.*?)[\'"]\)', re.MULTILINE)
     
     for match in import_pattern.findall(file_content):
         imports.append(match)
-    for match in require_pattern.findall(file_content):
+    for match in dynamic_pattern.findall(file_content):
         imports.append(match)
+        
     return imports
 
 def parse_python(file_content: str):
@@ -53,127 +248,389 @@ def parse_python(file_content: str):
 def analyze_directory(extract_dir: str):
     G = nx.DiGraph()
     files_data = {}
+    all_chunks = []
     
-    for root, _, files in os.walk(extract_dir):
+    for root, dirs, files in os.walk(extract_dir):
+        # Exclude common build, environment, and system directories
+        dirs[:] = [d for d in dirs if d not in {
+            '.git', 'node_modules', 'venv', '.venv', 'env', '.env', 
+            '__pycache__', '.next', 'dist', 'build', 'out', 'target', 
+            '__MACOSX', '.idea', '.vscode'
+        }]
+        
         for file in files:
-            if file.endswith(('.py', '.js', '.ts', '.jsx', '.tsx')):
+            # Ignore hidden files and macOS resource forks
+            if file.startswith('.') or file.startswith('._'):
+                continue
+                
+            if file.endswith(('.py', '.js', '.ts', '.jsx', '.tsx', '.md', '.txt', '.json')):
                 filepath = os.path.join(root, file)
                 rel_path = os.path.relpath(filepath, extract_dir)
-                # Normalize path for ID
                 node_id = rel_path.replace('\\', '/')
                 
                 with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
                     content = f.read()
                 
+                # Chunking for RAG
+                file_chunks = chunk_file(node_id, content)
+                all_chunks.extend(file_chunks)
+
                 imports = []
-                icon = "description"
                 if file.endswith('.py'):
                     imports = parse_python(content)
-                    icon = "data_object"
                 elif file.endswith(('.js', '.jsx', '.ts', '.tsx')):
                     imports = parse_js_ts(content)
-                    icon = "code"
                 
-                # Simple heuristic for icon
-                if "middleware" in file.lower():
-                    icon = "lock"
-                elif "db" in file.lower() or "store" in file.lower():
-                    icon = "database"
-                elif "api" in file.lower() or "route" in file.lower():
-                    icon = "api"
-                elif "service" in file.lower():
-                    icon = "group"
-                    
                 files_data[node_id] = {
                     "label": file,
                     "imports": imports,
-                    "icon": icon,
                     "content": content
                 }
                 
-                G.add_node(node_id, label=file, type="customNode", icon=icon)
+                G.add_node(node_id, label=file, type="customNode")
 
     # Build edges
-    for node_id, data in files_data.items():
-        for imp in data["imports"]:
-            imp_base = imp.split('/')[-1]
-            for target_id, target_data in files_data.items():
-                if target_data["label"].startswith(imp_base):
-                    G.add_edge(node_id, target_id)
-                    break
+    existing_files = set(files_data.keys())
     
-    return G, files_data
+    for node_id, data in files_data.items():
+        node_dir = os.path.dirname(node_id)
+        is_python = node_id.endswith('.py')
+        
+        for imp in data["imports"]:
+            resolved_targets = []
+            
+            if is_python:
+                clean_imp = imp.replace('.', '/')
+                resolved_targets.append(clean_imp)
+            else:
+                if imp.startswith('.'):
+                    resolved_path = os.path.normpath(os.path.join(node_dir, imp)).replace('\\', '/')
+                    resolved_targets.append(resolved_path)
+                else:
+                    clean_imp = re.sub(r'^[@~]/?', '', imp)
+                    resolved_targets.append(clean_imp)
+            
+            found_target = None
+            for target_base in resolved_targets:
+                if target_base in existing_files:
+                    found_target = target_base
+                    break
+                
+                possible_paths = [
+                    f"{target_base}.js", f"{target_base}.ts", 
+                    f"{target_base}.jsx", f"{target_base}.tsx",
+                    f"{target_base}.mjs", f"{target_base}.cjs",
+                    f"{target_base}.py",
+                    f"{target_base}/index.js", f"{target_base}/index.ts", 
+                    f"{target_base}/index.jsx", f"{target_base}/index.tsx",
+                    f"{target_base}/__init__.py"
+                ]
+                
+                for p in possible_paths:
+                    if p in existing_files:
+                        found_target = p
+                        break
+                
+                if found_target:
+                    break
+            
+            if found_target:
+                G.add_edge(node_id, found_target)
+            else:
+                # Fallback heuristic for nested project roots or complex aliases
+                if is_python:
+                    clean_imp = imp.replace('.', '/')
+                else:
+                    clean_imp = re.sub(r'^(\./|\.\./)+', '', imp)
+                    clean_imp = re.sub(r'^[@~]/?', '', clean_imp)
+                    clean_imp = re.sub(r'\.(js|ts|jsx|tsx|mjs|cjs|py)$', '', clean_imp)
+                
+                for target_id in existing_files:
+                    target_id_no_ext = os.path.splitext(target_id)[0]
+                    if target_id_no_ext.endswith(f"/{clean_imp}") or \
+                       target_id_no_ext == clean_imp or \
+                       (not is_python and target_id_no_ext.endswith(f"/{clean_imp}/index")) or \
+                       (is_python and target_id_no_ext.endswith(f"/{clean_imp}/__init__")):
+                        G.add_edge(node_id, target_id)
+                        break
+    
+    return G, files_data, all_chunks
+
+def extract_and_analyze_zip(zip_path: str, extract_dir: str):
+    MAX_EXTRACTED_SIZE = 250 * 1024 * 1024 # 250MB limit
+    total_extracted_size = 0
+    
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        if not zip_ref.infolist():
+            raise ValueError("The uploaded ZIP file is empty.")
+            
+        for member in zip_ref.infolist():
+            total_extracted_size += member.file_size
+            if total_extracted_size > MAX_EXTRACTED_SIZE:
+                raise ValueError("The repository is too large when extracted (exceeds 250MB). Please upload a smaller project.")
+                
+            target_path = os.path.abspath(os.path.join(extract_dir, member.filename))
+            if not target_path.startswith(extract_dir + os.sep) and target_path != extract_dir:
+                raise ValueError("Malicious archive detected: Path traversal attempt")
+            zip_ref.extract(member, extract_dir)
+            
+    G, files_data, all_chunks = analyze_directory(extract_dir)
+    
+    if not files_data:
+        raise ValueError("The uploaded archive does not contain any supported source code files (e.g., .py, .js, .ts, .md). It may be empty, contain only unsupported formats, or only folders.")
+        
+    repo_map = generate_repo_map(files_data, G)
+    return G, files_data, all_chunks, repo_map
+
+MAX_FILE_SIZE = 50 * 1024 * 1024 # 50 MB
 
 @app.post("/api/upload")
 async def upload_repo(file: UploadFile = File(...)):
-    if not file.filename.endswith('.zip'):
-        return {"error": "Only .zip files are supported"}
+    if not file.filename.lower().endswith('.zip'):
+        raise HTTPException(status_code=400, detail="Invalid file type. Only .zip files are allowed.")
+        
+    if file.content_type not in ["application/zip", "application/x-zip-compressed"]:
+        raise HTTPException(status_code=400, detail="Invalid file type. Only .zip files are allowed.")
+        
+    # Check file size limitation
+    file.file.seek(0, os.SEEK_END)
+    file_size = file.file.tell()
+    file.file.seek(0)
     
-    with tempfile.TemporaryDirectory() as tmpdirname:
-        zip_path = os.path.join(tmpdirname, "repo.zip")
-        with open(zip_path, "wb") as f:
-            content = await file.read()
-            f.write(content)
-        
-        extract_dir = os.path.join(tmpdirname, "extracted")
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(extract_dir)
-        
-        G, files_data = analyze_directory(extract_dir)
-        
-        # Position nodes using spring layout for MVP
-        try:
-            pos = nx.spring_layout(G, scale=400)
-        except Exception:
-            pos = {}
+    if file_size > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail="Payload Too Large. Maximum file size is 50MB.")
+    
+    try:
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            zip_path = os.path.join(tmpdirname, "repo.zip")
+            with open(zip_path, "wb") as f:
+                content = await file.read()
+                f.write(content)
             
-        rf_nodes = []
-        for node, data in G.nodes(data=True):
-            p = pos.get(node, [0,0])
-            rf_nodes.append({
-                "id": node,
-                "position": {"x": int(p[0]) + 400, "y": int(p[1]) + 300},
-                "data": {"label": data.get("label", node), "icon": data.get("icon", "description")},
-                "type": "customNode"
-            })
+            extract_dir = os.path.abspath(os.path.join(tmpdirname, "extracted"))
+            os.makedirs(extract_dir, exist_ok=True)
             
-        rf_edges = []
-        for idx, (u, v) in enumerate(G.edges()):
-            rf_edges.append({
-                "id": f"e{idx}",
-                "source": u,
-                "target": v,
-                "animated": True
-            })
+            try:
+                G, files_data, all_chunks, repo_map = await asyncio.to_thread(
+                    extract_and_analyze_zip, zip_path, extract_dir
+                )
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except zipfile.BadZipFile:
+                raise HTTPException(status_code=400, detail="Invalid or corrupted ZIP file.")
+
+            # Create session context
+            session_id = str(uuid.uuid4())
+            sessions[session_id] = {
+                "files": files_data,
+                "graph": G,
+                "search_index": LocalSearchIndex(),
+                "repo_map": repo_map
+            }
+            # Add chunks in a separate thread since TF-IDF fitting is CPU intensive
+            await asyncio.to_thread(sessions[session_id]["search_index"].add_chunks, all_chunks)
             
-        return {
-            "message": "Upload successful",
-            "graph": {
-                "nodes": rf_nodes,
-                "edges": rf_edges,
-            },
-            "files": files_data
-        }
+            rf_nodes = []
+            for node, data in G.nodes(data=True):
+                rf_nodes.append({
+                    "id": node,
+                    "position": {"x": 0, "y": 0},
+                    "data": {"label": data.get("label", node)},
+                    "type": "customNode"
+                })
+                
+            rf_edges = []
+            for idx, (u, v) in enumerate(G.edges()):
+                rf_edges.append({
+                    "id": f"e{idx}",
+                    "source": u,
+                    "target": v,
+                    "animated": True
+                })
+                
+            return {
+                "message": "Upload successful",
+                "session_id": session_id,
+                "graph": {
+                    "nodes": rf_nodes,
+                    "edges": rf_edges,
+                },
+                "files": files_data
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Upload Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to process upload: {str(e)}")
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    retry=retry_if_exception_type(Exception)
+)
+def call_gemini(model_name: str, contents: list, system_instruction: str):
+    return client.models.generate_content(
+        model=model_name,
+        contents=contents,
+        config=types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            temperature=0.1,
+        )
+    )
 
 @app.post("/api/chat")
 async def chat_with_repo(request: ChatRequest):
-    # For the MVP, we are mocking the AI response.
-    # In a real implementation, this would connect to OpenAI/Claude
-    # and pass `request.context` (the graph data) as part of the system prompt.
-    query = request.message.lower()
+    if not client:
+        raise HTTPException(status_code=500, detail="Gemini API key is missing. Please check your .env file.")
     
-    if "architecture" in query or "structure" in query:
-        response = "Based on the repository context, the architecture follows a standard layered approach. You can see the main modules separated by concerns. Use the graph visualization on the left to see exactly how they depend on each other."
-    elif "middleware" in query or "auth" in query:
-        response = "The authentication logic is primarily handled in the middleware layer. This ensures that all incoming API requests are verified before reaching the core services."
-    elif "database" in query or "store" in query:
-        response = "I detected database connection patterns. The application appears to use a central store or repository pattern. Look for nodes with the 'database' icon in the graph."
-    else:
-        response = f"This JavaScript file demonstrates the use of the `filter()` method to create new arrays based on specific conditions.Part 1 filters ages to return only adults (values greater than or equal to 18), while Part 2 filters words whose length exceeds 6 characters. It showcases concise arrow function syntax and practical array filtering operations in JavaScript."
+    session_id = request.session_id
+    if session_id not in sessions:
+        raise HTTPException(status_code=400, detail="Session not found. Please upload a repository first.")
         
-    import asyncio
-    await asyncio.sleep(1) # simulate network latency
-    return {"reply": response}
+    repo_context = sessions[session_id]
+
+    if not repo_context["files"]:
+        raise HTTPException(status_code=400, detail="Please upload a repository first so I can analyze it and answer your questions.")
+
+    # 1. Intent Detection
+    is_architectural = detect_architectural_intent(request.message)
+    
+    files_data = repo_context["files"]
+    total_repo_size = sum(len(data['content']) for data in files_data.values())
+    MAX_CONTEXT_CHARS = 500_000 # Safe token limit for Gemini 1.5/2.5 Flash
+    
+    context_str = ""
+    use_rag = True
+    relevant_chunks = []
+    
+    # 2. Dynamic Context Assembly
+    if total_repo_size <= MAX_CONTEXT_CHARS:
+        # Whole-Repo Context for Small Repositories
+        use_rag = False
+        context_str += "### FULL REPOSITORY CONTEXT\n"
+        context_str += "The repository is small enough to include entirely. Here are all the files:\n\n"
+        for path, data in files_data.items():
+            context_str += f"--- FILE: {path} ---\n{data['content']}\n\n"
+            
+    elif is_architectural:
+        # Dynamic Context Assembly for Large Repositories on Architectural Queries
+        use_rag = False
+        context_str += "### CRITICAL ARCHITECTURAL FILES\n"
+        context_str += "The following files represent the core architecture of the system:\n\n"
+        
+        current_chars = 0
+        for path, data in files_data.items():
+            role = classify_role(path, data['content'])
+            if role in ["Entry Points", "Routing & Controllers", "Data Models & Persistence"]:
+                content_len = len(data['content'])
+                if current_chars + content_len <= MAX_CONTEXT_CHARS:
+                    context_str += f"--- FILE: {path} ({role}) ---\n{data['content']}\n\n"
+                    current_chars += content_len
+
+        # Step B GraphRAG Fallback
+        G = repo_context["graph"]
+        in_degrees = dict(G.in_degree())
+        top_central_files = sorted(in_degrees.items(), key=lambda x: x[1], reverse=True)[:3]
+        
+        if top_central_files:
+            context_str += "### CRITICAL ARCHITECTURAL COMPONENTS (GRAPH DEPENDENCIES)\n"
+            for node, degree in top_central_files:
+                if node in files_data:
+                    role = classify_role(node, files_data[node]['content'])
+                    if role not in ["Entry Points", "Routing & Controllers", "Data Models & Persistence"]:
+                        content = files_data[node]['content']
+                        if current_chars + len(content[:1500]) <= MAX_CONTEXT_CHARS:
+                            context_str += f"--- CENTRAL FILE: {node} (Referenced {degree} times) ---\n"
+                            out_edges = list(G.successors(node))
+                            if out_edges:
+                                context_str += f"Dependencies: {', '.join(out_edges[:5])}\n"
+                            context_str += f"Content Snippet:\n{content[:1500]}\n\n"
+                            current_chars += len(content[:1500])
+
+    if use_rag:
+        # 3. Standard RAG (Semantic Search) for specific implementation questions
+        top_k = 8
+        relevant_chunks = await asyncio.to_thread(
+            repo_context["search_index"].search, request.message, top_k=top_k
+        )
+
+    # Inject Selected File Context
+    selected_file = request.context.get("selectedFile")
+    if selected_file:
+        context_str += "### ACTIVE FILE CONTEXT\n"
+        context_str += f"The user is currently inspecting the following file: {selected_file.get('path')}\n"
+        context_str += f"Imports: {', '.join(selected_file.get('imports', []))}\n"
+        context_str += f"Content:\n{selected_file.get('content', '')}\n\n"
+        context_str += "IMPORTANT: If the user says 'this file', 'here', or asks to summarize/explain without naming a file, assume they are talking about the ACTIVE FILE above. Analyze this specific file in priority.\n\n"
+
+    # Inject Repository Blueprint
+    if repo_context["repo_map"]:
+        context_str += f"{repo_context['repo_map']}\n\n"
+
+    if use_rag:
+        if not relevant_chunks:
+            context_str += "### CODE SNIPPETS\nNo direct matches found, but here is a list of available files:\n"
+            context_str += "\n".join(list(repo_context["files"].keys())[:20]) + "\n\n"
+        else:
+            context_str += "### CODE SNIPPETS\nHere are the relevant snippets from the repository.\n\n"
+            for chunk in relevant_chunks:
+                context_str += f"--- FILE: {chunk.file_path} (Lines {chunk.start_line}-{chunk.end_line}) ---\n{chunk.content}\n\n"
+
+    if is_architectural:
+        context_str += "\nNOTE: The user is asking a structural or architectural question. Prioritize the REPOSITORY ARCHITECTURE BLUEPRINT and the provided full files/snippets to deduce potential flaws or architectural patterns.\n"
+
+
+    system_instruction = """You are DocSwarm AI, an elite Senior Software Architect and Repository Intelligence Assistant.
+Your primary objective is to deliver deep, analytical, and highly accurate insights into the user's codebase.
+
+### AVAILABLE CONTEXT SOURCES
+Depending on the size of the repository and the user's query, you will receive a combination of the following context blocks:
+1. REPOSITORY ARCHITECTURE BLUEPRINT: A structural map of the codebase, including file roles, directory trees, and top-level graph dependencies.
+2. ACTIVE FILE CONTEXT: The file the user is currently looking at. Prioritize this if the user uses implicit pronouns (e.g., "this file", "here").
+3. FULL REPOSITORY CONTEXT: The complete source code of the repository (provided for small projects).
+4. CRITICAL ARCHITECTURAL FILES / COMPONENTS: The full source code of heavily imported or structurally significant files (Entry Points, Data Models, Routes).
+5. CODE SNIPPETS (RAG): Semantically retrieved chunks of code specifically relevant to the user's query.
+
+### ARCHITECTURAL ANALYSIS PROTOCOL
+When asked to evaluate architecture, find flaws, suggest improvements, or explain patterns:
+- Synthesize the BLUEPRINT with the raw code provided in FULL/CRITICAL files or SNIPPETS.
+- Identify common anti-patterns natively (e.g., God objects, tight coupling, hardcoded secrets, lack of error handling, sprawling state, circular dependencies).
+- DO NOT rely on pre-generated summaries. You are expected to ACT as the architect and deduce these flaws yourself using the raw code evidence.
+- State your inferences confidently. If the provided context lacks sufficient evidence for a definitive claim, clearly articulate what you suspect and what files you would need to confirm it.
+
+### STRICT RULES:
+1. Ground every claim in the provided codebase context. Always cite specific file names, classes, or function names when making a point.
+2. For IMPLEMENTATION questions, rely on ACTIVE FILE CONTEXT or CODE SNIPPETS.
+3. If the answer cannot be reasonably inferred from any provided source, clearly state: "I could not find sufficient evidence in the uploaded documents to answer that." Do not hallucinate external details.
+4. Format your responses elegantly using Markdown, bullet points, and code blocks for readability. Maintain a professional, authoritative, yet helpful tone."""
+
+    try:
+        response = await asyncio.to_thread(
+            call_gemini,
+            model_name="gemini-2.5-flash",
+            contents=[context_str + f"\n\nUSER QUESTION: {request.message}"],
+            system_instruction=system_instruction
+        )
+        
+        if not response.text:
+            return {"reply": "I could not find that information in the uploaded documents."}
+            
+        return {"reply": response.text}
+
+    except Exception as e:
+        print(f"Gemini API Error: {str(e)}")
+        error_msg = str(e).lower()
+        detailed_error = str(e)
+        if hasattr(e, 'message'): detailed_error = e.message
+        
+        if "api_key" in error_msg or "401" in error_msg:
+            raise HTTPException(status_code=401, detail=f"Invalid Gemini API key. ({detailed_error})")
+        elif "quota" in error_msg or "429" in error_msg:
+            raise HTTPException(status_code=429, detail=f"Gemini API quota exceeded or high demand. Please wait a moment and try again. ({detailed_error})")
+        elif "connection" in error_msg:
+            raise HTTPException(status_code=503, detail=f"Failed to connect to Gemini API. ({detailed_error})")
+        else:
+            raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {detailed_error}")
 
 if __name__ == "__main__":
     import uvicorn
