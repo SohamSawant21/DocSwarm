@@ -245,6 +245,45 @@ def parse_python(file_content: str):
         pass
     return imports
 
+def build_file_tree(file_paths: List[str]) -> List[Dict[str, Any]]:
+    tree = {}
+
+    for path in file_paths:
+        parts = path.replace('\\', '/').split('/')
+        current_level = tree
+        
+        for i, part in enumerate(parts):
+            is_file = (i == len(parts) - 1)
+            
+            if part not in current_level:
+                current_level[part] = {
+                    "name": part,
+                    "type": "file" if is_file else "folder",
+                    "path": path if is_file else None,
+                    "children": {} if not is_file else None
+                }
+            
+            if not is_file:
+                current_level = current_level[part]["children"]
+
+    def format_tree(node_dict: Dict[str, Any]) -> List[Dict[str, Any]]:
+        result = []
+        for key, node in node_dict.items():
+            formatted_node = {
+                "name": node["name"],
+                "type": node["type"],
+            }
+            if node["type"] == "file":
+                formatted_node["path"] = node["path"]
+            if node["type"] == "folder":
+                formatted_node["children"] = format_tree(node["children"])
+            result.append(formatted_node)
+        
+        result.sort(key=lambda x: (0 if x["type"] == "folder" else 1, x["name"].lower()))
+        return result
+
+    return format_tree(tree)
+
 def analyze_directory(extract_dir: str):
     G = nx.DiGraph()
     files_data = {}
@@ -380,7 +419,9 @@ def extract_and_analyze_zip(zip_path: str, extract_dir: str):
         raise ValueError("The uploaded archive does not contain any supported source code files (e.g., .py, .js, .ts, .md). It may be empty, contain only unsupported formats, or only folders.")
         
     repo_map = generate_repo_map(files_data, G)
-    return G, files_data, all_chunks, repo_map
+    file_tree = build_file_tree(list(files_data.keys()))
+    
+    return G, files_data, all_chunks, repo_map, file_tree
 
 MAX_FILE_SIZE = 50 * 1024 * 1024 # 50 MB
 
@@ -411,7 +452,7 @@ async def upload_repo(file: UploadFile = File(...)):
             os.makedirs(extract_dir, exist_ok=True)
             
             try:
-                G, files_data, all_chunks, repo_map = await asyncio.to_thread(
+                G, files_data, all_chunks, repo_map, file_tree = await asyncio.to_thread(
                     extract_and_analyze_zip, zip_path, extract_dir
                 )
             except ValueError as e:
@@ -455,7 +496,8 @@ async def upload_repo(file: UploadFile = File(...)):
                     "nodes": rf_nodes,
                     "edges": rf_edges,
                 },
-                "files": files_data
+                "files": files_data,
+                "file_tree": file_tree
             }
     except HTTPException:
         raise
