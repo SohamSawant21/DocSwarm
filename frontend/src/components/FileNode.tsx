@@ -1,66 +1,69 @@
-import React, { useState } from "react";
+import React from "react";
 import { ChevronRight, ChevronDown } from "lucide-react";
-import type { FileTreeNode } from "@/types";
+import type { FlatNode } from "@/hooks/useFileTree";
 import { getIconForFile, getIconForFolder } from "@/utils/fileIcons";
 
-export interface FileNodeProps {
-  node: FileTreeNode;
-  level: number;
+export interface FileNodeRowProps {
+  index: number;
+  item: FlatNode;
+  expandedFolders: Set<string>;
   selectedNodeId: string | null;
   onSelectNode: (id: string | null) => void;
-  searchQuery?: string;
+  toggleFolder: (id: string) => void;
+  searchQuery: string;
 }
 
-export const FileNode: React.FC<FileNodeProps> = React.memo(({
-  node,
-  level,
+export const FileNodeRow = React.memo(({
+  index,
+  item,
+  expandedFolders,
   selectedNodeId,
   onSelectNode,
-  searchQuery = ""
-}) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  toggleFolder,
+  searchQuery
+}: FileNodeRowProps) => {
+  const { node, level, id } = item;
 
   const isFolder = node.type === "folder";
   const isSelected = !isFolder && node.path === selectedNodeId;
-
-  // Filter children based on search query
-  const hasMatch = (n: FileTreeNode, q: string): boolean => {
-    if (n.name.toLowerCase().includes(q.toLowerCase())) return true;
-    if (n.type === "folder" && n.children) {
-      return n.children.some(child => hasMatch(child, q));
-    }
-    return false;
-  };
-
-  if (searchQuery.trim() && !hasMatch(node, searchQuery)) {
-    return null;
-  }
-
-  // Force expand if searching
-  const expanded = (searchQuery.trim() !== "") ? true : isExpanded;
-
-  const toggleExpand = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsExpanded(prev => !prev);
-  };
+  const expanded = searchQuery.trim() ? true : expandedFolders.has(id);
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (isFolder) {
-      toggleExpand(e);
+      toggleFolder(id);
     } else if (node.path) {
       onSelectNode(isSelected ? null : node.path);
     }
   };
 
-  const paddingLeft = `${level * 12 + 8}px`;
+  const paddingLeft = `${level * 12 + 16}px`;
+
+  // Highlight search text
+  const renderName = () => {
+    if (!searchQuery.trim()) return node.name;
+    const lowerName = node.name.toLowerCase();
+    const lowerQuery = searchQuery.trim().toLowerCase();
+    const idx = lowerName.indexOf(lowerQuery);
+    if (idx === -1) return node.name;
+
+    return (
+      <>
+        {node.name.substring(0, idx)}
+        <span className="bg-primary/20 text-primary font-medium rounded-sm px-0.5">
+          {node.name.substring(idx, idx + lowerQuery.length)}
+        </span>
+        {node.name.substring(idx + lowerQuery.length)}
+      </>
+    );
+  };
 
   return (
-    <div>
+    <div className="pr-4 pl-2">
       <div
         onClick={handleClick}
         style={{ paddingLeft }}
-        className={`flex items-center gap-1.5 cursor-pointer py-1 pr-2 rounded group transition-all duration-200 select-none ${
+        className={`flex items-center gap-1.5 cursor-pointer py-[4px] rounded group transition-all duration-100 select-none ${
           isSelected
             ? "bg-primary text-on-primary hover:bg-on-primary-fixed-variant"
             : "text-on-surface-variant hover:text-on-surface hover:bg-surface-variant"
@@ -68,17 +71,17 @@ export const FileNode: React.FC<FileNodeProps> = React.memo(({
         title={node.path || node.name}
       >
         {isFolder ? (
-          <div className="flex items-center justify-center w-4 h-4 text-outline hover:text-on-surface transition-colors" onClick={toggleExpand}>
+          <div className="flex items-center justify-center w-4 h-4 text-outline hover:text-on-surface transition-colors">
             {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           </div>
         ) : (
-          <div className="w-4 h-4 flex-shrink-0" /> // Spacer for alignment
+          <div className="w-4 h-4 flex-shrink-0" />
         )}
 
         {isFolder ? (
           (() => {
             const Icon = getIconForFolder(expanded).icon;
-            return <Icon size={16} className="text-primary flex-shrink-0" />;
+            return <Icon size={16} className={`flex-shrink-0 ${isSelected ? "text-on-primary" : "text-primary"}`} />;
           })()
         ) : (
           (() => {
@@ -94,27 +97,12 @@ export const FileNode: React.FC<FileNodeProps> = React.memo(({
           })()
         )}
 
-        <span className="truncate text-[13px]">
-          {node.name}
+        <span className="truncate text-[13px] leading-tight">
+          {renderName()}
         </span>
       </div>
-
-      {isFolder && expanded && node.children && (
-        <div className="flex flex-col">
-          {node.children.map((child, index) => (
-            <FileNode
-              key={`${child.path || child.name}-${index}`}
-              node={child}
-              level={level + 1}
-              selectedNodeId={selectedNodeId}
-              onSelectNode={onSelectNode}
-              searchQuery={searchQuery}
-            />
-          ))}
-        </div>
-      )}
     </div>
   );
 });
 
-FileNode.displayName = "FileNode";
+FileNodeRow.displayName = "FileNodeRow";
