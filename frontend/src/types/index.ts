@@ -11,6 +11,13 @@ export interface FileMap {
   [filepath: string]: FileData;
 }
 
+export interface FileTreeNode {
+  name: string;
+  type: "file" | "folder";
+  path?: string; // Only present if type === "file"
+  children?: FileTreeNode[]; // Only present if type === "folder"
+}
+
 export interface CustomNodeData extends Record<string, unknown> {
   label: string;
   icon?: string;
@@ -30,6 +37,7 @@ export interface UploadResponse {
   session_id: string;
   graph: GraphDataPayload;
   files: FileMap;
+  file_tree: FileTreeNode[];
 }
 
 export interface NodeDetail extends FileData {

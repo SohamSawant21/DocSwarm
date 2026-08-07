@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { UploadResponse, FileData } from "@/types";
-import { getIconForFile } from "@/utils/fileIcons";
+import type { UploadResponse } from "@/types";
+import { FileNode } from "./FileNode";
 
 export function FileTree({ 
   data,
@@ -16,15 +16,7 @@ export function FileTree({
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
 
-  if (!data || !data.files) return null;
-
-  const entries = Object.entries(data.files) as [string, FileData][];
-  const filtered = query.trim()
-    ? entries.filter(([path, file]) =>
-        file.label.toLowerCase().includes(query.toLowerCase()) ||
-        path.toLowerCase().includes(query.toLowerCase())
-      )
-    : entries;
+  if (!data || !data.file_tree) return null;
 
   return (
     <div className="w-64 bg-surface-bright border-r border-outline-variant flex flex-col shrink-0 overflow-hidden">
@@ -66,37 +58,21 @@ export function FileTree({
       </div>
 
       {/* File list */}
-      <div className="flex-1 overflow-y-auto px-6 pb-6">
-        <div className="space-y-1 font-body-md text-[14px]">
-          {filtered.length === 0 ? (
-            <p className="text-outline text-[13px] py-2">No files match.</p>
+      <div className="flex-1 overflow-y-auto px-4 pb-6">
+        <div className="font-body-md text-[14px]">
+          {data.file_tree.length === 0 ? (
+            <p className="text-outline text-[13px] py-2 px-2">No files found.</p>
           ) : (
-            filtered.map(([path, file]) => {
-              const isSelected = path === selectedNodeId;
-              const Icon = getIconForFile(file.label).icon;
-              return (
-                <div
-                  key={path}
-                  onClick={() => onSelectNode(isSelected ? null : path)}
-                  className={`flex items-center gap-3 cursor-pointer py-1.5 rounded px-1 group transition-all duration-200 ${
-                    isSelected 
-                      ? "bg-primary text-on-primary hover:bg-on-primary-fixed-variant" 
-                      : "text-on-surface-variant hover:text-on-surface hover:bg-surface-variant hover:pl-2"
-                  }`}
-                >
-                  <Icon 
-                    size={16} 
-                    strokeWidth={1.5}
-                    className={`transition-colors shrink-0 ${
-                      isSelected ? "text-on-primary" : "text-outline group-hover:text-primary"
-                    }`}
-                  />
-                  <span className="truncate transition-transform" title={path}>
-                    {file.label}
-                  </span>
-                </div>
-              );
-            })
+            data.file_tree.map((node, index) => (
+              <FileNode
+                key={`${node.path || node.name}-${index}`}
+                node={node}
+                level={0}
+                selectedNodeId={selectedNodeId}
+                onSelectNode={onSelectNode}
+                searchQuery={query}
+              />
+            ))
           )}
         </div>
       </div>
