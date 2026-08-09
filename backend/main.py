@@ -249,6 +249,25 @@ def parse_python(file_content: str):
         pass
     return imports
 
+def process_file_task(task):
+    node_id, filepath = task
+    try:
+        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+            
+        file_chunks = chunk_file(node_id, content)
+        
+        imports = []
+        if filepath.endswith('.py'):
+            imports = parse_python(content)
+        elif filepath.endswith(('.js', '.jsx', '.ts', '.tsx')):
+            imports = parse_js_ts(content)
+            
+        return node_id, os.path.basename(filepath), content, file_chunks, imports
+    except Exception as e:
+        print(f"Error processing {filepath}: {e}")
+        return node_id, os.path.basename(filepath), "", [], []
+
 def build_file_tree(file_paths: List[str]) -> List[Dict[str, Any]]:
     tree = {}
 
@@ -289,9 +308,13 @@ def build_file_tree(file_paths: List[str]) -> List[Dict[str, Any]]:
     return format_tree(tree)
 
 def analyze_directory(extract_dir: str):
+    import concurrent.futures
+    
     G = nx.DiGraph()
     files_data = {}
     all_chunks = []
+    
+    file_tasks = []
     
     for root, dirs, files in os.walk(extract_dir):
         # Exclude common build, environment, and system directories
@@ -310,31 +333,46 @@ def analyze_directory(extract_dir: str):
                 filepath = os.path.join(root, file)
                 rel_path = os.path.relpath(filepath, extract_dir)
                 node_id = rel_path.replace('\\', '/')
-                
-                with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read()
-                
-                # Chunking for RAG
-                file_chunks = chunk_file(node_id, content)
-                all_chunks.extend(file_chunks)
+                file_tasks.append((node_id, filepath))
 
-                imports = []
-                if file.endswith('.py'):
-                    imports = parse_python(content)
-                elif file.endswith(('.js', '.jsx', '.ts', '.tsx')):
-                    imports = parse_js_ts(content)
-                
-                files_data[node_id] = {
-                    "label": file,
-                    "imports": imports,
-                    "content": content
-                }
-                
-                G.add_node(node_id, label=file, type="customNode")
+    # Parallelize CPU-intensive AST parsing
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        results = executor.map(process_file_task, file_tasks)
+        
+    for res in results:
+        node_id, label, content, file_chunks, imports = res
+        all_chunks.extend(file_chunks)
+        files_data[node_id] = {
+            "label": label,
+            "imports": imports,
+            "content": content
+        }
+        G.add_node(node_id, label=label, type="customNode")
 
     # Build edges
     existing_files = set(files_data.keys())
     
+    # Pre-build lookup map for O(1) fallback resolution
+    suffix_map = {}
+    for target_id in existing_files:
+        target_id_no_ext = os.path.splitext(target_id)[0]
+        parts = target_id_no_ext.split('/')
+        for i in range(len(parts)):
+            suffix = "/".join(parts[i:])
+            if suffix not in suffix_map:
+                suffix_map[suffix] = target_id
+            
+            if target_id_no_ext.endswith("/index") and not target_id.endswith(".py"):
+                if suffix.endswith("/index"):
+                    dir_suffix = suffix[:-6]
+                    if dir_suffix and dir_suffix not in suffix_map:
+                        suffix_map[dir_suffix] = target_id
+            elif target_id_no_ext.endswith("/__init__") and target_id.endswith(".py"):
+                if suffix.endswith("/__init__"):
+                    dir_suffix = suffix[:-9]
+                    if dir_suffix and dir_suffix not in suffix_map:
+                        suffix_map[dir_suffix] = target_id
+
     for node_id, data in files_data.items():
         node_dir = os.path.dirname(node_id)
         is_python = node_id.endswith('.py')
@@ -380,7 +418,7 @@ def analyze_directory(extract_dir: str):
             if found_target:
                 G.add_edge(node_id, found_target)
             else:
-                # Fallback heuristic for nested project roots or complex aliases
+                # Optimized O(1) fallback heuristic
                 if is_python:
                     clean_imp = imp.replace('.', '/')
                 else:
@@ -388,14 +426,8 @@ def analyze_directory(extract_dir: str):
                     clean_imp = re.sub(r'^[@~]/?', '', clean_imp)
                     clean_imp = re.sub(r'\.(js|ts|jsx|tsx|mjs|cjs|py)$', '', clean_imp)
                 
-                for target_id in existing_files:
-                    target_id_no_ext = os.path.splitext(target_id)[0]
-                    if target_id_no_ext.endswith(f"/{clean_imp}") or \
-                       target_id_no_ext == clean_imp or \
-                       (not is_python and target_id_no_ext.endswith(f"/{clean_imp}/index")) or \
-                       (is_python and target_id_no_ext.endswith(f"/{clean_imp}/__init__")):
-                        G.add_edge(node_id, target_id)
-                        break
+                if clean_imp in suffix_map:
+                    G.add_edge(node_id, suffix_map[clean_imp])
     
     return G, files_data, all_chunks
 
