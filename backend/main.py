@@ -74,6 +74,10 @@ class LocalSearchIndex:
                 all_embeddings.extend([[0.0] * 768] * len(batch))
                 
         self.embeddings = np.array(all_embeddings)
+        
+        # Clear content to save memory
+        for c in self.chunks:
+            c.content = ""
 
     def search(self, query: str, top_k: int = 5) -> List[CodeChunk]:
         if not self.chunks or self.embeddings is None or len(self.embeddings) == 0:
@@ -154,16 +158,19 @@ def classify_role(file_path: str, content: str) -> str:
         return "Documentation"
     return "Other"
 
-def generate_repo_map(files_data: Dict[str, Any], G: nx.DiGraph) -> str:
+def generate_repo_map(files_data: Dict[str, Any], G: nx.DiGraph, extract_dir: str) -> str:
     blueprint = "### REPOSITORY ARCHITECTURE BLUEPRINT\n\n"
     
     # 1. Project Overview (Search for README)
     overview = "No README found."
     for path, data in files_data.items():
         if path.lower() == 'readme.md':
-            content = data['content']
-            # Take first 500 chars as summary
-            overview = content[:500] + ("..." if len(content) > 500 else "")
+            try:
+                with open(os.path.join(extract_dir, path), 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                overview = content[:500] + ("..." if len(content) > 500 else "")
+            except Exception:
+                pass
             break
     blueprint += f"#### 1. PROJECT OVERVIEW\n{overview}\n\n"
     
@@ -179,7 +186,7 @@ def generate_repo_map(files_data: Dict[str, Any], G: nx.DiGraph) -> str:
     }
     
     for path, data in files_data.items():
-        role = classify_role(path, data['content'])
+        role = data.get('role', 'Other')
         if role in roles:
             roles[role].append(path)
             
@@ -263,10 +270,11 @@ def process_file_task(task):
         elif filepath.endswith(('.js', '.jsx', '.ts', '.tsx')):
             imports = parse_js_ts(content)
             
-        return node_id, os.path.basename(filepath), content, file_chunks, imports
+        role = classify_role(filepath, content)
+        return node_id, os.path.basename(filepath), file_chunks, imports, role, len(content)
     except Exception as e:
         print(f"Error processing {filepath}: {e}")
-        return node_id, os.path.basename(filepath), "", [], []
+        return node_id, os.path.basename(filepath), [], [], "Other", 0
 
 def build_file_tree(file_paths: List[str]) -> List[Dict[str, Any]]:
     tree = {}
@@ -340,12 +348,13 @@ def analyze_directory(extract_dir: str):
         results = executor.map(process_file_task, file_tasks)
         
     for res in results:
-        node_id, label, content, file_chunks, imports = res
+        node_id, label, file_chunks, imports, role, size = res
         all_chunks.extend(file_chunks)
         files_data[node_id] = {
             "label": label,
             "imports": imports,
-            "content": content
+            "role": role,
+            "size": size
         }
         G.add_node(node_id, label=label, type="customNode")
 
@@ -454,7 +463,7 @@ def extract_and_analyze_zip(zip_path: str, extract_dir: str):
     if not files_data:
         raise ValueError("The uploaded archive does not contain any supported source code files (e.g., .py, .js, .ts, .md). It may be empty, contain only unsupported formats, or only folders.")
         
-    repo_map = generate_repo_map(files_data, G)
+    repo_map = generate_repo_map(files_data, G, extract_dir)
     file_tree = build_file_tree(list(files_data.keys()))
     
     return G, files_data, all_chunks, repo_map, file_tree
@@ -468,6 +477,8 @@ def process_upload_task(task_id: str, session_id: str, tmpdirname: str, extract_
         
         # Create session context
         sessions[session_id] = {
+            "extract_dir": extract_dir,
+            "tmpdirname": tmpdirname,
             "files": files_data,
             "graph": G,
             "search_index": LocalSearchIndex(),
@@ -519,10 +530,7 @@ def process_upload_task(task_id: str, session_id: str, tmpdirname: str, extract_
         tasks[task_id]["status"] = "failed"
         tasks[task_id]["error"] = f"Failed to process upload: {str(e)}"
     finally:
-        try:
-            shutil.rmtree(tmpdirname)
-        except Exception as e:
-            print(f"Failed to cleanup temp directory {tmpdirname}: {str(e)}")
+        pass # Intentionally keep the tmpdirname on disk for /api/chat disk reads
 
 @app.post("/api/upload")
 async def upload_repo(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
@@ -611,7 +619,8 @@ async def chat_with_repo(request: ChatRequest):
     is_architectural = detect_architectural_intent(request.message)
     
     files_data = repo_context["files"]
-    total_repo_size = sum(len(data['content']) for data in files_data.values())
+    extract_dir = repo_context.get("extract_dir", "")
+    total_repo_size = sum(data.get('size', 0) for data in files_data.values())
     MAX_CONTEXT_CHARS = 500_000 # Safe token limit for Gemini 1.5/2.5 Flash
     
     context_str = ""
@@ -625,7 +634,12 @@ async def chat_with_repo(request: ChatRequest):
         context_str += "### FULL REPOSITORY CONTEXT\n"
         context_str += "The repository is small enough to include entirely. Here are all the files:\n\n"
         for path, data in files_data.items():
-            context_str += f"--- FILE: {path} ---\n{data['content']}\n\n"
+            try:
+                with open(os.path.join(extract_dir, path), 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                context_str += f"--- FILE: {path} ---\n{content}\n\n"
+            except Exception:
+                pass
             
     elif is_architectural:
         # Dynamic Context Assembly for Large Repositories on Architectural Queries
@@ -635,12 +649,17 @@ async def chat_with_repo(request: ChatRequest):
         
         current_chars = 0
         for path, data in files_data.items():
-            role = classify_role(path, data['content'])
+            role = data.get('role', 'Other')
             if role in ["Entry Points", "Routing & Controllers", "Data Models & Persistence"]:
-                content_len = len(data['content'])
+                content_len = data.get('size', 0)
                 if current_chars + content_len <= MAX_CONTEXT_CHARS:
-                    context_str += f"--- FILE: {path} ({role}) ---\n{data['content']}\n\n"
-                    current_chars += content_len
+                    try:
+                        with open(os.path.join(extract_dir, path), 'r', encoding='utf-8', errors='ignore') as f:
+                            content = f.read()
+                        context_str += f"--- FILE: {path} ({role}) ---\n{content}\n\n"
+                        current_chars += content_len
+                    except Exception:
+                        pass
 
         # Step B GraphRAG Fallback
         G = repo_context["graph"]
@@ -651,16 +670,20 @@ async def chat_with_repo(request: ChatRequest):
             context_str += "### CRITICAL ARCHITECTURAL COMPONENTS (GRAPH DEPENDENCIES)\n"
             for node, degree in top_central_files:
                 if node in files_data:
-                    role = classify_role(node, files_data[node]['content'])
+                    role = files_data[node].get('role', 'Other')
                     if role not in ["Entry Points", "Routing & Controllers", "Data Models & Persistence"]:
-                        content = files_data[node]['content']
-                        if current_chars + len(content[:1500]) <= MAX_CONTEXT_CHARS:
-                            context_str += f"--- CENTRAL FILE: {node} (Referenced {degree} times) ---\n"
-                            out_edges = list(G.successors(node))
-                            if out_edges:
-                                context_str += f"Dependencies: {', '.join(out_edges[:5])}\n"
-                            context_str += f"Content Snippet:\n{content[:1500]}\n\n"
-                            current_chars += len(content[:1500])
+                        try:
+                            with open(os.path.join(extract_dir, node), 'r', encoding='utf-8', errors='ignore') as f:
+                                content = f.read()
+                            if current_chars + len(content[:1500]) <= MAX_CONTEXT_CHARS:
+                                context_str += f"--- CENTRAL FILE: {node} (Referenced {degree} times) ---\n"
+                                out_edges = list(G.successors(node))
+                                if out_edges:
+                                    context_str += f"Dependencies: {', '.join(out_edges[:5])}\n"
+                                context_str += f"Content Snippet:\n{content[:1500]}\n\n"
+                                current_chars += len(content[:1500])
+                        except Exception:
+                            pass
 
     if use_rag:
         # 3. Standard RAG (Semantic Search) for specific implementation questions

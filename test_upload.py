@@ -1,23 +1,13 @@
 import requests
 import zipfile
 import time
-import os
 
-def test_upload():
-    print("Generating large dummy repo...")
+def test_upload_and_chat():
+    print("Generating dummy repo...")
     with zipfile.ZipFile("test_repo.zip", "w") as z:
-        # Create 100 folders with 10 files each
-        for fld in range(10):
-            for i in range(10):
-                path = f"folder_{fld}/file_{i}.py"
-                # Import something from the previous folder to test cross-folder
-                imp = ""
-                if fld > 0:
-                    imp = f"from folder_{fld-1}.file_{i} import something"
-                
-                content = f"{imp}\n\ndef func():\n    print('hello')\n"
-                z.writestr(path, content)
-        z.writestr("main.py", "import folder_0.file_0\nprint('hello world')")
+        z.writestr("main.py", "import utils\ndef main():\n    print('hello world')\n")
+        z.writestr("utils.py", "def helper():\n    return True\n")
+        z.writestr("README.md", "This is a test repo.\n")
 
     print("Uploading repo...")
     start_time = time.time()
@@ -27,28 +17,37 @@ def test_upload():
             files={"file": ("test_repo.zip", f, "application/zip")}
         )
     
-    print("Upload Response:", res.status_code, res.text)
     if res.status_code != 200:
+        print("Upload failed:", res.text)
         return
         
     data = res.json()
     task_id = data.get("task_id")
-    print("Task ID:", task_id)
+    session_id = data.get("session_id")
+    print("Task ID:", task_id, "Session ID:", session_id)
     
-    if not task_id:
-        return
-
     # Poll status
     for _ in range(30):
         time.sleep(0.5)
         res_status = requests.get(f"http://localhost:8000/api/status/{task_id}")
-        
         status_data = res_status.json()
-        print("Status:", status_data.get("status"), status_data.get("message"))
-        
-        if status_data.get("status") in ["completed", "failed"]:
-            print(f"Final State reached in {time.time() - start_time:.2f} seconds.")
+        if status_data.get("status") == "completed":
+            print("Upload & processing completed!")
             break
+        elif status_data.get("status") == "failed":
+            print("Upload failed:", status_data)
+            return
+            
+    print("Testing /api/chat...")
+    chat_res = requests.post(
+        "http://localhost:8000/api/chat",
+        json={"message": "What does main.py do?", "session_id": session_id, "context": {}}
+    )
+    print("Chat Response Code:", chat_res.status_code)
+    try:
+        print("Chat Response:", chat_res.json())
+    except Exception:
+        print("Chat Response text:", chat_res.text)
 
 if __name__ == "__main__":
-    test_upload()
+    test_upload_and_chat()
