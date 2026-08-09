@@ -6,7 +6,8 @@ import asyncio
 import networkx as nx
 import numpy as np
 import uuid
-from fastapi import FastAPI, UploadFile, File, HTTPException
+import shutil
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
@@ -112,6 +113,9 @@ def chunk_file(file_path: str, content: str, chunk_size: int = 50, overlap: int 
 
 # In-memory storage for uploaded repository contexts per session
 sessions: Dict[str, Dict[str, Any]] = {}
+
+# In-memory storage for background task status
+tasks: Dict[str, Any] = {}
 
 class ChatRequest(BaseModel):
     message: str
@@ -425,8 +429,71 @@ def extract_and_analyze_zip(zip_path: str, extract_dir: str):
 
 MAX_FILE_SIZE = 50 * 1024 * 1024 # 50 MB
 
+def process_upload_task(task_id: str, session_id: str, tmpdirname: str, extract_dir: str, zip_path: str):
+    try:
+        tasks[task_id]["message"] = "Extracting and analyzing files..."
+        G, files_data, all_chunks, repo_map, file_tree = extract_and_analyze_zip(zip_path, extract_dir)
+        
+        # Create session context
+        sessions[session_id] = {
+            "files": files_data,
+            "graph": G,
+            "search_index": LocalSearchIndex(),
+            "repo_map": repo_map
+        }
+        
+        tasks[task_id]["message"] = "Building search index..."
+        # Add chunks in the same thread (we are already in a background task)
+        sessions[session_id]["search_index"].add_chunks(all_chunks)
+        
+        rf_nodes = []
+        for node, data in G.nodes(data=True):
+            rf_nodes.append({
+                "id": node,
+                "position": {"x": 0, "y": 0},
+                "data": {"label": data.get("label", node)},
+                "type": "customNode"
+            })
+            
+        rf_edges = []
+        for idx, (u, v) in enumerate(G.edges()):
+            rf_edges.append({
+                "id": f"e{idx}",
+                "source": u,
+                "target": v,
+                "animated": True
+            })
+            
+        tasks[task_id]["status"] = "completed"
+        tasks[task_id]["message"] = "Processing complete"
+        tasks[task_id]["result"] = {
+            "message": "Upload successful",
+            "session_id": session_id,
+            "graph": {
+                "nodes": rf_nodes,
+                "edges": rf_edges,
+            },
+            "files": files_data,
+            "file_tree": file_tree
+        }
+    except ValueError as e:
+        tasks[task_id]["status"] = "failed"
+        tasks[task_id]["error"] = str(e)
+    except zipfile.BadZipFile:
+        tasks[task_id]["status"] = "failed"
+        tasks[task_id]["error"] = "Invalid or corrupted ZIP file."
+    except Exception as e:
+        print(f"Background Task Error: {str(e)}")
+        tasks[task_id]["status"] = "failed"
+        tasks[task_id]["error"] = f"Failed to process upload: {str(e)}"
+    finally:
+        try:
+            shutil.rmtree(tmpdirname)
+        except Exception as e:
+            print(f"Failed to cleanup temp directory {tmpdirname}: {str(e)}")
+
 @app.post("/api/upload")
-async def upload_repo(file: UploadFile = File(...)):
+async def upload_repo(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     if not file.filename.lower().endswith('.zip'):
         raise HTTPException(status_code=400, detail="Invalid file type. Only .zip files are allowed.")
         
@@ -442,68 +509,42 @@ async def upload_repo(file: UploadFile = File(...)):
         raise HTTPException(status_code=413, detail="Payload Too Large. Maximum file size is 50MB.")
     
     try:
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            zip_path = os.path.join(tmpdirname, "repo.zip")
-            with open(zip_path, "wb") as f:
-                content = await file.read()
-                f.write(content)
-            
-            extract_dir = os.path.abspath(os.path.join(tmpdirname, "extracted"))
-            os.makedirs(extract_dir, exist_ok=True)
-            
-            try:
-                G, files_data, all_chunks, repo_map, file_tree = await asyncio.to_thread(
-                    extract_and_analyze_zip, zip_path, extract_dir
-                )
-            except ValueError as e:
-                raise HTTPException(status_code=400, detail=str(e))
-            except zipfile.BadZipFile:
-                raise HTTPException(status_code=400, detail="Invalid or corrupted ZIP file.")
-
-            # Create session context
-            session_id = str(uuid.uuid4())
-            sessions[session_id] = {
-                "files": files_data,
-                "graph": G,
-                "search_index": LocalSearchIndex(),
-                "repo_map": repo_map
-            }
-            # Add chunks in a separate thread since TF-IDF fitting is CPU intensive
-            await asyncio.to_thread(sessions[session_id]["search_index"].add_chunks, all_chunks)
-            
-            rf_nodes = []
-            for node, data in G.nodes(data=True):
-                rf_nodes.append({
-                    "id": node,
-                    "position": {"x": 0, "y": 0},
-                    "data": {"label": data.get("label", node)},
-                    "type": "customNode"
-                })
-                
-            rf_edges = []
-            for idx, (u, v) in enumerate(G.edges()):
-                rf_edges.append({
-                    "id": f"e{idx}",
-                    "source": u,
-                    "target": v,
-                    "animated": True
-                })
-                
-            return {
-                "message": "Upload successful",
-                "session_id": session_id,
-                "graph": {
-                    "nodes": rf_nodes,
-                    "edges": rf_edges,
-                },
-                "files": files_data,
-                "file_tree": file_tree
-            }
-    except HTTPException:
-        raise
+        tmpdirname = tempfile.mkdtemp()
+        zip_path = os.path.join(tmpdirname, "repo.zip")
+        with open(zip_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+        
+        extract_dir = os.path.abspath(os.path.join(tmpdirname, "extracted"))
+        os.makedirs(extract_dir, exist_ok=True)
+        
+        session_id = str(uuid.uuid4())
+        task_id = str(uuid.uuid4())
+        
+        tasks[task_id] = {
+            "status": "processing",
+            "message": "Upload saved, starting analysis...",
+            "session_id": session_id,
+            "result": None,
+            "error": None
+        }
+        
+        background_tasks.add_task(process_upload_task, task_id, session_id, tmpdirname, extract_dir, zip_path)
+        
+        return {
+            "message": "Upload successful, processing started",
+            "task_id": task_id,
+            "session_id": session_id
+        }
+        
     except Exception as e:
         print(f"Upload Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to process upload: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to initiate upload processing: {str(e)}")
+
+@app.get("/api/status/{task_id}")
+async def get_task_status(task_id: str):
+    if task_id not in tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return tasks[task_id]
 
 @retry(
     stop=stop_after_attempt(3),

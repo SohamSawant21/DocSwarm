@@ -30,18 +30,6 @@ export default function Home() {
     setIsUploading(true);
     setLoadingStep("Uploading repository...");
 
-    const steps = [
-      "Extracting files...",
-      "Analyzing dependencies...",
-      "Generating intelligence report...",
-      "Finalizing graph..."
-    ];
-    let stepIndex = 0;
-    const interval = setInterval(() => {
-      setLoadingStep(steps[stepIndex]);
-      stepIndex = Math.min(stepIndex + 1, steps.length - 1);
-    }, 1500);
-
     const formData = new FormData();
     formData.append("file", file);
 
@@ -51,19 +39,52 @@ export default function Home() {
         body: formData,
       });
       const data = await response.json();
-      clearInterval(interval);
-      if (response.ok && data.graph) {
-        setGraphData(data);
-        setSelectedNodeId(null);
-      } else {
+      
+      if (!response.ok) {
+        setIsUploading(false);
+        setLoadingStep("");
         alert(data.detail || data.error || "Upload failed");
+        return;
       }
-    } catch (error) {
-      clearInterval(interval);
+
+      if (data.task_id) {
+        // Poll for status
+        const pollInterval = setInterval(async () => {
+          try {
+            const statusRes = await fetch(endpoints.status(data.task_id));
+            if (!statusRes.ok) throw new Error("Failed to get status");
+            const statusData = await statusRes.json();
+
+            setLoadingStep(statusData.message || "Processing...");
+
+            if (statusData.status === "completed") {
+              clearInterval(pollInterval);
+              setGraphData(statusData.result);
+              setSelectedNodeId(null);
+              setIsUploading(false);
+              setLoadingStep("");
+            } else if (statusData.status === "failed") {
+              clearInterval(pollInterval);
+              alert(statusData.error || "Processing failed");
+              setIsUploading(false);
+              setLoadingStep("");
+            }
+          } catch (err) {
+            clearInterval(pollInterval);
+            console.error("Polling error:", err);
+            alert("Error checking status.");
+            setIsUploading(false);
+            setLoadingStep("");
+          }
+        }, 2000);
+      } else {
+        setIsUploading(false);
+        setLoadingStep("");
+        alert("No task ID returned");
+      }
+    } catch (error: any) {
       console.error("Error uploading file:", error);
-      alert("Error uploading file. Make sure backend is running.");
-    } finally {
-      clearInterval(interval);
+      alert(error.message || "Error uploading file. Make sure backend is running.");
       setIsUploading(false);
       setLoadingStep("");
     }

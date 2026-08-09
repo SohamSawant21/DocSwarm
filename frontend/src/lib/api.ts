@@ -3,4 +3,5 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost
 export const endpoints = {
   upload: `${API_BASE_URL}/api/upload`,
   chat: `${API_BASE_URL}/api/chat`,
+  status: (taskId: string) => `${API_BASE_URL}/api/status/${taskId}`,
 };
