@@ -608,6 +608,53 @@ async def get_task_status(task_id: str):
         raise HTTPException(status_code=404, detail="Task not found")
     return tasks[task_id]
 
+@app.get("/api/file/{session_id}")
+async def get_file_content(session_id: str, filepath: str):
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    session_data = sessions[session_id]
+    extract_dir = session_data.get("extract_dir")
+    
+    if not extract_dir or not os.path.isdir(extract_dir):
+        raise HTTPException(status_code=500, detail="Repository not found or extracted")
+        
+    if not filepath:
+        raise HTTPException(status_code=400, detail="Filepath query parameter is required")
+        
+    try:
+        # Resolve the requested path securely
+        requested_path = os.path.abspath(os.path.join(extract_dir, filepath))
+        
+        # Prevent directory traversal attacks
+        if os.path.commonpath([extract_dir, requested_path]) != extract_dir:
+            raise HTTPException(status_code=403, detail="Access denied: Invalid file path")
+            
+        if not os.path.exists(requested_path):
+            raise HTTPException(status_code=404, detail="File not found")
+            
+        if not os.path.isfile(requested_path):
+            raise HTTPException(status_code=400, detail="Requested path is not a file")
+            
+        # File size check to prevent memory issues (e.g., limit to 10MB)
+        MAX_READ_SIZE = 10 * 1024 * 1024
+        file_size = os.path.getsize(requested_path)
+        if file_size > MAX_READ_SIZE:
+            raise HTTPException(status_code=400, detail="File is too large to display")
+            
+        with open(requested_path, "r", encoding="utf-8") as f:
+            content = f.read()
+            
+        return {"content": content}
+        
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Cannot read binary or unsupported file format")
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Avoid exposing sensitive backend filesystem paths in error
+        raise HTTPException(status_code=500, detail="An error occurred while reading the file")
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=4, max=10),
