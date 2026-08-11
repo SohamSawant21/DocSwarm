@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { TopAppBar } from "@/components/TopAppBar";
 import { SideNav } from "@/components/SideNav";
 import { FileTree } from "@/components/FileTree";
@@ -16,6 +16,49 @@ export default function Home() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadId, setUploadId] = useState<number>(0);
   const [loadingStep, setLoadingStep] = useState<string>("");
+
+  const [activeFileContent, setActiveFileContent] = useState<string | null>(null);
+  const [isFileLoading, setIsFileLoading] = useState(false);
+
+  useEffect(() => {
+    if (!selectedNodeId || !graphData?.session_id) {
+      setActiveFileContent(null);
+      setIsFileLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const fetchContent = async () => {
+      setIsFileLoading(true);
+      setActiveFileContent(null); // Clear previous content
+      
+      try {
+        const res = await fetch(endpoints.fileContent(graphData.session_id, selectedNodeId), {
+          signal: controller.signal
+        });
+        
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setActiveFileContent(`Error: ${data.detail || "Unable to load file content"}`);
+          return;
+        }
+        
+        const data = await res.json();
+        setActiveFileContent(data.content);
+      } catch (err: any) {
+        if (err.name === 'AbortError') return;
+        setActiveFileContent("Error: Could not connect to backend to fetch file.");
+      } finally {
+        setIsFileLoading(false);
+      }
+    };
+
+    fetchContent();
+
+    return () => {
+      controller.abort();
+    };
+  }, [selectedNodeId, graphData]);
 
   const handleReset = () => {
     setGraphData(null);
@@ -147,6 +190,8 @@ export default function Home() {
                     data={graphData} 
                     selectedNodeId={selectedNodeId} 
                     onSelectNode={setSelectedNodeId} 
+                    activeFileContent={activeFileContent}
+                    isFileLoading={isFileLoading}
                   />
                 </ErrorBoundary>
               </div>
@@ -156,6 +201,7 @@ export default function Home() {
                   sessionId={graphData.session_id}
                   selectedNodeId={selectedNodeId}
                   selectedNodeData={selectedNodeId && graphData ? graphData.files[selectedNodeId] : null}
+                  activeFileContent={activeFileContent}
                 />
               </ErrorBoundary>
             </>

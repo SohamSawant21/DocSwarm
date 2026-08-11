@@ -112,11 +112,15 @@ const getLanguage = (filename: string) => {
 export function GraphCanvas({ 
   data,
   selectedNodeId,
-  onSelectNode
+  onSelectNode,
+  activeFileContent,
+  isFileLoading
 }: { 
   data: UploadResponse;
   selectedNodeId: string | null;
   onSelectNode: (id: string | null) => void;
+  activeFileContent?: string | null;
+  isFileLoading?: boolean;
 }) {
   const [nodes, setNodes, onNodesChange] = useNodesState<GraphNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<GraphEdge>([]);
@@ -233,10 +237,15 @@ export function GraphCanvas({
             </div>
             <div className="p-4 flex-1 overflow-y-auto">
               <div className="mb-6">
-                {selectedNode.content ? (
+                {isFileLoading ? (
+                  <div className="flex flex-col items-center justify-center p-4 bg-surface rounded border border-surface-variant">
+                    <span className="material-symbols-outlined animate-spin text-primary mb-2">progress_activity</span>
+                    <span className="text-xs text-on-surface-variant">Loading content...</span>
+                  </div>
+                ) : activeFileContent ? (
                   <pre className="text-xs overflow-x-auto text-outline font-code bg-surface p-2 rounded border border-surface-variant">
-                    {selectedNode.content.substring(0, 500)}
-                    {selectedNode.content.length > 500 && "..."}
+                    {activeFileContent.substring(0, 500)}
+                    {activeFileContent.length > 500 && "..."}
                   </pre>
                 ) : (
                   <p className="font-body-md text-body-md text-on-surface-variant">
@@ -306,7 +315,7 @@ export function GraphCanvas({
                   height="100%"
                   language={getLanguage(selectedNode.id)}
                   theme="vs-dark"
-                  value={selectedNode.content || ""}
+                  value={isFileLoading ? "// Loading..." : (activeFileContent || "")}
                   options={{
                     readOnly: true,
                     minimap: { enabled: true },

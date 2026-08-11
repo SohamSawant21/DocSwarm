@@ -15,11 +15,13 @@ type Message = {
 export function RightPanel({ 
   sessionId,
   selectedNodeId, 
-  selectedNodeData 
+  selectedNodeData,
+  activeFileContent
 }: { 
   sessionId?: string;
   selectedNodeId?: string | null;
   selectedNodeData?: FileData | null;
+  activeFileContent?: string | null;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -57,7 +59,7 @@ export function RightPanel({
         id: selectedNodeId,
         path: selectedNodeId,
         imports: selectedNodeData.imports,
-        content: selectedNodeData.content,
+        content: activeFileContent || selectedNodeData.content || "",
         role: "File" // Fallback role, can be enhanced later
       };
     }
