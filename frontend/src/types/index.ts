@@ -53,3 +53,7 @@ export interface ChatResponse {
   reply?: string;
   detail?: string;
 }
+
+export interface FileContentResponse {
+  content: string;
+}
