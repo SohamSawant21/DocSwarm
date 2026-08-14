@@ -9,10 +9,11 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
 from typing import Dict, Any
 
 from utils.state import sessions, tasks
-from utils.models import ChatRequest
+from utils.models import ChatRequest, DocsRequest
 from services.ai_service import VectorSearchIndex, call_gemini_async, detect_architectural_intent, client
 from services.graph_service import analyze_directory, generate_repo_map
 from services.parser_service import build_file_tree
+from services.docs_service import generate_project_docs
 
 router = APIRouter()
 MAX_FILE_SIZE = 50 * 1024 * 1024 # 50 MB
@@ -388,3 +389,20 @@ When asked to evaluate architecture, find flaws, suggest improvements, or explai
             raise HTTPException(status_code=503, detail=f"Failed to connect to Gemini API. ({detailed_error})")
         else:
             raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {detailed_error}")
+
+
+@router.post("/api/generate-docs")
+async def generate_docs(request: DocsRequest):
+    if request.session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found or expired.")
+    
+    sessions[request.session_id]["last_accessed"] = time.time()
+    
+    try:
+        docs = await generate_project_docs(request.session_id)
+        return {"docs": docs}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        print(f"Docs Generation Error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate documentation.")

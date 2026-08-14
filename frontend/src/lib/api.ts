@@ -6,4 +6,5 @@ export const endpoints = {
   status: (taskId: string) => `${API_BASE_URL}/api/status/${taskId}`,
   fileContent: (sessionId: string, filepath: string) => 
     `${API_BASE_URL}/api/file/${encodeURIComponent(sessionId)}?filepath=${encodeURIComponent(filepath)}`,
+  generateDocs: `${API_BASE_URL}/api/generate-docs`,
 };
