@@ -3,6 +3,8 @@ import zipfile
 import tempfile
 import re
 import asyncio
+import time
+from contextlib import asynccontextmanager
 import networkx as nx
 import numpy as np
 import uuid
@@ -143,12 +145,64 @@ sessions: Dict[str, Dict[str, Any]] = {}
 # In-memory storage for background task status
 tasks: Dict[str, Any] = {}
 
+SESSION_TTL = 3600  # 1 hour
+
+def cleanup_session(session_id: str):
+    if session_id in sessions:
+        session_data = sessions.pop(session_id)
+        # Cleanup temp dir
+        tmpdirname = session_data.get("tmpdirname")
+        if tmpdirname and os.path.exists(tmpdirname):
+            try:
+                shutil.rmtree(tmpdirname)
+            except Exception as e:
+                print(f"Failed to delete temp dir {tmpdirname}: {e}")
+                
+        # Cleanup ChromaDB
+        try:
+            collection.delete(where={"session_id": session_id})
+        except Exception as e:
+            print(f"Failed to delete chroma docs for {session_id}: {e}")
+
+async def session_cleanup_task():
+    while True:
+        try:
+            now = time.time()
+            expired = [sid for sid, data in sessions.items() if now - data.get("last_accessed", now) > SESSION_TTL]
+            for sid in expired:
+                print(f"Cleaning up expired session {sid}")
+                cleanup_session(sid)
+                
+            # Also clean up old tasks to prevent memory leak there
+            expired_tasks = [tid for tid, tdata in tasks.items() if now - tdata.get("created_at", now) > SESSION_TTL * 2]
+            for tid in expired_tasks:
+                tasks.pop(tid, None)
+                
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"Cleanup task error: {e}")
+        await asyncio.sleep(60)  # Run every minute
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(session_cleanup_task())
+    yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    # On shutdown, clean up ALL sessions to not leave dangling temp dirs
+    for sid in list(sessions.keys()):
+        cleanup_session(sid)
+
 class ChatRequest(BaseModel):
     message: str
     session_id: str
     context: Dict[str, Any] = {}
 
-app = FastAPI(title="DocSwarm GraphOS API")
+app = FastAPI(title="DocSwarm GraphOS API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -464,13 +518,23 @@ def analyze_directory(extract_dir: str):
 
 def extract_and_analyze_zip(zip_path: str, extract_dir: str):
     MAX_EXTRACTED_SIZE = 250 * 1024 * 1024 # 250MB limit
+    MAX_FILES = 15000
+    MAX_FILE_SIZE = 50 * 1024 * 1024 # 50MB per file max
     total_extracted_size = 0
+    file_count = 0
     
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
         if not zip_ref.infolist():
             raise ValueError("The uploaded ZIP file is empty.")
             
         for member in zip_ref.infolist():
+            file_count += 1
+            if file_count > MAX_FILES:
+                raise ValueError(f"The archive contains too many files (exceeds {MAX_FILES}).")
+                
+            if member.file_size > MAX_FILE_SIZE:
+                raise ValueError(f"File {member.filename} is too large (exceeds 50MB).")
+                
             total_extracted_size += member.file_size
             if total_extracted_size > MAX_EXTRACTED_SIZE:
                 raise ValueError("The repository is too large when extracted (exceeds 250MB). Please upload a smaller project.")
@@ -478,7 +542,14 @@ def extract_and_analyze_zip(zip_path: str, extract_dir: str):
             target_path = os.path.abspath(os.path.join(extract_dir, member.filename))
             if not target_path.startswith(extract_dir + os.sep) and target_path != extract_dir:
                 raise ValueError("Malicious archive detected: Path traversal attempt")
-            zip_ref.extract(member, extract_dir)
+            
+            # Secure streaming extraction instead of zip_ref.extract
+            if member.is_dir():
+                os.makedirs(target_path, exist_ok=True)
+            else:
+                os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                with zip_ref.open(member, 'r') as source, open(target_path, 'wb') as target:
+                    shutil.copyfileobj(source, target, length=65536) # Read in 64kb chunks
             
     G, files_data, all_chunks = analyze_directory(extract_dir)
     
@@ -493,6 +564,7 @@ def extract_and_analyze_zip(zip_path: str, extract_dir: str):
 MAX_FILE_SIZE = 50 * 1024 * 1024 # 50 MB
 
 def process_upload_task(task_id: str, session_id: str, tmpdirname: str, extract_dir: str, zip_path: str):
+    session_created = False
     try:
         tasks[task_id]["message"] = "Extracting and analyzing files..."
         G, files_data, all_chunks, repo_map, file_tree = extract_and_analyze_zip(zip_path, extract_dir)
@@ -504,7 +576,8 @@ def process_upload_task(task_id: str, session_id: str, tmpdirname: str, extract_
             "files": files_data,
             "graph": G,
             "search_index": VectorSearchIndex(session_id),
-            "repo_map": repo_map
+            "repo_map": repo_map,
+            "last_accessed": time.time()
         }
         
         tasks[task_id]["message"] = "Building search index..."
@@ -529,6 +602,8 @@ def process_upload_task(task_id: str, session_id: str, tmpdirname: str, extract_
                 "animated": True
             })
             
+        session_created = True
+        
         tasks[task_id]["status"] = "completed"
         tasks[task_id]["message"] = "Processing complete"
         tasks[task_id]["result"] = {
@@ -552,7 +627,11 @@ def process_upload_task(task_id: str, session_id: str, tmpdirname: str, extract_
         tasks[task_id]["status"] = "failed"
         tasks[task_id]["error"] = f"Failed to process upload: {str(e)}"
     finally:
-        pass # Intentionally keep the tmpdirname on disk for /api/chat disk reads
+        if not session_created and os.path.exists(tmpdirname):
+            try:
+                shutil.rmtree(tmpdirname)
+            except Exception:
+                pass
 
 @app.post("/api/upload")
 async def upload_repo(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
@@ -587,7 +666,8 @@ async def upload_repo(background_tasks: BackgroundTasks, file: UploadFile = File
             "message": "Upload saved, starting analysis...",
             "session_id": session_id,
             "result": None,
-            "error": None
+            "error": None,
+            "created_at": time.time()
         }
         
         background_tasks.add_task(process_upload_task, task_id, session_id, tmpdirname, extract_dir, zip_path)
@@ -613,6 +693,7 @@ async def get_file_content(session_id: str, filepath: str):
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
         
+    sessions[session_id]["last_accessed"] = time.time()
     session_data = sessions[session_id]
     extract_dir = session_data.get("extract_dir")
     
@@ -679,6 +760,7 @@ async def chat_with_repo(request: ChatRequest):
     if session_id not in sessions:
         raise HTTPException(status_code=400, detail="Session not found. Please upload a repository first.")
         
+    sessions[session_id]["last_accessed"] = time.time()
     repo_context = sessions[session_id]
 
     if not repo_context["files"]:
