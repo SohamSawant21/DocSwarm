@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
+import { Toaster } from "react-hot-toast";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -25,6 +26,7 @@ export default function RootLayout({
         />
       </head>
       <body className={`${inter.variable} ${jetbrains.variable} bg-background text-on-background font-body-md antialiased h-screen flex flex-col selection:bg-primary selection:text-on-primary overflow-hidden`}>
+        <Toaster position="top-right" />
         {children}
       </body>
     </html>

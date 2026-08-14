@@ -1,70 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { TopAppBar } from "@/components/TopAppBar";
 import { SideNav } from "@/components/SideNav";
-import { FileTree } from "@/components/FileTree";
-import { GraphCanvas } from "@/components/GraphCanvas";
-import { RightPanel } from "@/components/RightPanel";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import type { UploadResponse } from "@/types";
 import { endpoints } from "@/lib/api";
+import { useStore } from "@/store/useStore";
+import toast from "react-hot-toast";
 
 export default function Home() {
-  const [graphData, setGraphData] = useState<UploadResponse | null>(null);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const router = useRouter();
   const [isUploading, setIsUploading] = useState(false);
-  const [uploadId, setUploadId] = useState<number>(0);
   const [loadingStep, setLoadingStep] = useState<string>("");
-
-  const [activeFileContent, setActiveFileContent] = useState<string | null>(null);
-  const [isFileLoading, setIsFileLoading] = useState(false);
-
-  useEffect(() => {
-    if (!selectedNodeId || !graphData?.session_id) {
-      setActiveFileContent(null);
-      setIsFileLoading(false);
-      return;
-    }
-
-    const controller = new AbortController();
-    const fetchContent = async () => {
-      setIsFileLoading(true);
-      setActiveFileContent(null); // Clear previous content
-      
-      try {
-        const res = await fetch(endpoints.fileContent(graphData.session_id, selectedNodeId), {
-          signal: controller.signal
-        });
-        
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          setActiveFileContent(`Error: ${data.detail || "Unable to load file content"}`);
-          return;
-        }
-        
-        const data = await res.json();
-        setActiveFileContent(data.content);
-      } catch (err: any) {
-        if (err.name === 'AbortError') return;
-        setActiveFileContent("Error: Could not connect to backend to fetch file.");
-      } finally {
-        setIsFileLoading(false);
-      }
-    };
-
-    fetchContent();
-
-    return () => {
-      controller.abort();
-    };
-  }, [selectedNodeId, graphData]);
-
-  const handleReset = () => {
-    setGraphData(null);
-    setSelectedNodeId(null);
-    setUploadId((prev) => prev + 1);
-  };
+  
+  const { setGraphData, uploadId, incrementUploadId } = useStore();
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -86,12 +36,11 @@ export default function Home() {
       if (!response.ok) {
         setIsUploading(false);
         setLoadingStep("");
-        alert(data.detail || data.error || "Upload failed");
+        toast.error(data.detail || data.error || "Upload failed");
         return;
       }
 
       if (data.task_id) {
-        // Poll for status
         const pollInterval = setInterval(async () => {
           try {
             const statusRes = await fetch(endpoints.status(data.task_id));
@@ -103,19 +52,21 @@ export default function Home() {
             if (statusData.status === "completed") {
               clearInterval(pollInterval);
               setGraphData(statusData.result);
-              setSelectedNodeId(null);
               setIsUploading(false);
               setLoadingStep("");
+              incrementUploadId();
+              toast.success("Repository analyzed successfully!");
+              router.push("/dashboard");
             } else if (statusData.status === "failed") {
               clearInterval(pollInterval);
-              alert(statusData.error || "Processing failed");
+              toast.error(statusData.error || "Processing failed");
               setIsUploading(false);
               setLoadingStep("");
             }
           } catch (err) {
             clearInterval(pollInterval);
             console.error("Polling error:", err);
-            alert("Error checking status.");
+            toast.error("Error checking status.");
             setIsUploading(false);
             setLoadingStep("");
           }
@@ -123,11 +74,11 @@ export default function Home() {
       } else {
         setIsUploading(false);
         setLoadingStep("");
-        alert("No task ID returned");
+        toast.error("No task ID returned");
       }
     } catch (error: any) {
       console.error("Error uploading file:", error);
-      alert(error.message || "Error uploading file. Make sure backend is running.");
+      toast.error(error.message || "Error uploading file. Make sure backend is running.");
       setIsUploading(false);
       setLoadingStep("");
     }
@@ -135,15 +86,13 @@ export default function Home() {
 
   return (
     <>
-      <TopAppBar onReset={graphData ? handleReset : undefined} />
+      <TopAppBar />
       <div className="flex-1 flex overflow-hidden relative pt-14">
         <SideNav />
-        {/* Main Content Canvas */}
         <main className="flex-1 ml-16 flex flex-col md:flex-row h-full overflow-hidden">
-          <ErrorBoundary sectionName="Application Engine" onReset={handleReset}>
-            {!graphData ? (
+          <ErrorBoundary sectionName="Upload Experience">
             <div className="flex-1 flex flex-col items-center justify-center bg-surface">
-              <div className=" p-8 border-2 border-dashed border-outline-variant rounded-xl flex flex-col items-center text-center bg-surface-bright">
+              <div className="p-8 border-2 border-dashed border-outline-variant rounded-xl flex flex-col items-center text-center bg-surface-bright max-w-lg w-full shadow-sm">
                 <span className="material-symbols-outlined text-[48px] text-outline mb-4">
                   upload_file
                 </span>
@@ -174,38 +123,6 @@ export default function Home() {
                 </label>
               </div>
             </div>
-          ) : (
-            <>
-              {/* Left-Central Area with File Tree and DocGraph */}
-              <div className="flex-1 flex overflow-hidden animate-fade-in">
-                <ErrorBoundary sectionName="File Explorer">
-                  <FileTree 
-                    data={graphData} 
-                    selectedNodeId={selectedNodeId} 
-                    onSelectNode={setSelectedNodeId} 
-                  />
-                </ErrorBoundary>
-                <ErrorBoundary sectionName="Graph Canvas">
-                  <GraphCanvas 
-                    data={graphData} 
-                    selectedNodeId={selectedNodeId} 
-                    onSelectNode={setSelectedNodeId} 
-                    activeFileContent={activeFileContent}
-                    isFileLoading={isFileLoading}
-                  />
-                </ErrorBoundary>
-              </div>
-              <ErrorBoundary sectionName="Intelligence Panel">
-                <RightPanel 
-                  key={uploadId} 
-                  sessionId={graphData.session_id}
-                  selectedNodeId={selectedNodeId}
-                  selectedNodeData={selectedNodeId && graphData ? graphData.files[selectedNodeId] : null}
-                  activeFileContent={activeFileContent}
-                />
-              </ErrorBoundary>
-            </>
-          )}
           </ErrorBoundary>
         </main>
       </div>
