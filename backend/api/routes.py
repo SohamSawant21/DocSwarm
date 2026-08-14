@@ -10,7 +10,7 @@ from typing import Dict, Any
 
 from utils.state import sessions, tasks
 from utils.models import ChatRequest
-from services.ai_service import VectorSearchIndex, call_gemini, detect_architectural_intent, client
+from services.ai_service import VectorSearchIndex, call_gemini_async, detect_architectural_intent, client
 from services.graph_service import analyze_directory, generate_repo_map
 from services.parser_service import build_file_tree
 
@@ -61,11 +61,16 @@ def extract_and_analyze_zip(zip_path: str, extract_dir: str):
     
     return G, files_data, all_chunks, repo_map, file_tree
 
-def process_upload_task(task_id: str, session_id: str, tmpdirname: str, extract_dir: str, zip_path: str):
+async def process_upload_task(task_id: str, session_id: str, tmpdirname: str, extract_dir: str, zip_path: str):
     session_created = False
     try:
         tasks[task_id]["message"] = "Extracting and analyzing files..."
-        G, files_data, all_chunks, repo_map, file_tree = extract_and_analyze_zip(zip_path, extract_dir)
+        
+        # Run blocking ZIP extraction and multi-process AST parsing in a separate thread pool
+        def _run_extract():
+            return extract_and_analyze_zip(zip_path, extract_dir)
+            
+        G, files_data, all_chunks, repo_map, file_tree = await asyncio.to_thread(_run_extract)
         
         sessions[session_id] = {
             "extract_dir": extract_dir,
@@ -78,7 +83,7 @@ def process_upload_task(task_id: str, session_id: str, tmpdirname: str, extract_
         }
         
         tasks[task_id]["message"] = "Building search index..."
-        sessions[session_id]["search_index"].add_chunks(all_chunks)
+        await sessions[session_id]["search_index"].add_chunks_async(all_chunks)
         
         rf_nodes = []
         for node, data in G.nodes(data=True):
@@ -308,9 +313,7 @@ async def chat_with_repo(request: ChatRequest):
 
     if use_rag:
         top_k = 8
-        relevant_chunks = await asyncio.to_thread(
-            repo_context["search_index"].search, request.message, top_k=top_k
-        )
+        relevant_chunks = await repo_context["search_index"].search_async(request.message, top_k=top_k)
 
     selected_file = request.context.get("selectedFile")
     if selected_file:
@@ -360,8 +363,7 @@ When asked to evaluate architecture, find flaws, suggest improvements, or explai
 4. Format your responses elegantly using Markdown, bullet points, and code blocks for readability. Maintain a professional, authoritative, yet helpful tone."""
 
     try:
-        response = await asyncio.to_thread(
-            call_gemini,
+        response = await call_gemini_async(
             model_name="gemini-2.5-flash",
             contents=[context_str + f"\n\nUSER QUESTION: {request.message}"],
             system_instruction=system_instruction
