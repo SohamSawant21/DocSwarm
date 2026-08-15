@@ -143,9 +143,7 @@ async def upload_repo(background_tasks: BackgroundTasks, file: UploadFile = File
     if file.content_type not in ["application/zip", "application/x-zip-compressed"]:
         raise HTTPException(status_code=400, detail="Invalid file type. Only .zip files are allowed.")
         
-    file.file.seek(0, os.SEEK_END)
-    file_size = file.file.tell()
-    file.file.seek(0)
+    file_size = file.size
     
     if file_size > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail="Payload Too Large. Maximum file size is 50MB.")
