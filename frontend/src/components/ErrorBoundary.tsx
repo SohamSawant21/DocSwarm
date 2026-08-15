@@ -44,7 +44,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
       return (
         <div className="flex flex-col items-center justify-center p-6 text-center h-full w-full bg-surface">
-          <div className="bg-surface-bright border border-surface-variant rounded-xl p-6 shadow-sm w-full max-w-sm flex flex-col items-center">
+          <div className="bg-surface-bright border border-surface-variant rounded-xl p-6 shadow-sm w-full max-w-[24rem] flex flex-col items-center">
             <span className="material-symbols-outlined text-error text-[48px] mb-4">
               warning
             </span>

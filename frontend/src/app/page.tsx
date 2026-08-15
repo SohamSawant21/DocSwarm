@@ -92,7 +92,7 @@ export default function Home() {
         <main className="flex-1 ml-16 flex flex-col md:flex-row h-full overflow-hidden">
           <ErrorBoundary sectionName="Upload Experience">
             <div className="flex-1 flex flex-col items-center justify-center bg-surface">
-              <div className="p-8 border-2 border-dashed border-outline-variant rounded-xl flex flex-col items-center text-center bg-surface-bright max-w-lg w-full shadow-sm">
+              <div className="p-8 border-2 border-dashed border-outline-variant rounded-xl flex flex-col items-center text-center bg-surface-bright max-w-[32rem] w-full shadow-sm">
                 <span className="material-symbols-outlined text-[48px] text-outline mb-4">
                   upload_file
                 </span>
