@@ -1,5 +1,5 @@
 import unittest
-from main import build_file_tree
+from services.parser_service import build_file_tree
 
 class TestBuildFileTree(unittest.TestCase):
 

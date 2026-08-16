@@ -51,17 +51,17 @@ def test_file_endpoint():
     response = client.get(f"/api/file/{session_id}?filepath=src/main.ts")
     assert response.status_code == 200
     assert response.json() == {"content": "console.log('Hello World');"}
-    print("✓ Valid session ID and valid file path")
+    print("[OK] Valid session ID and valid file path")
     
     # TC2: Invalid session ID
     response = client.get("/api/file/invalid-session-id?filepath=src/main.ts")
     assert response.status_code == 404
-    print("✓ Invalid session ID")
+    print("[OK] Invalid session ID")
     
     # TC3: Valid session with nonexistent file
     response = client.get(f"/api/file/{session_id}?filepath=src/missing.ts")
     assert response.status_code == 404
-    print("✓ Valid session with nonexistent file")
+    print("[OK] Valid session with nonexistent file")
     
     # TC4: Root-level file
     root_file_path = os.path.join(extract_dir, "root.txt")
@@ -70,28 +70,28 @@ def test_file_endpoint():
     response = client.get(f"/api/file/{session_id}?filepath=root.txt")
     assert response.status_code == 200
     assert response.json() == {"content": "root file"}
-    print("✓ Root-level file")
+    print("[OK] Root-level file")
 
     # TC5: Deeply nested files
     response = client.get(f"/api/file/{session_id}?filepath=a/b/c/nested.txt")
     assert response.status_code == 200
     assert response.json() == {"content": "nested content"}
-    print("✓ Deeply nested files")
+    print("[OK] Deeply nested files")
     
     # TC6: Invalid paths (empty)
     response = client.get(f"/api/file/{session_id}?filepath=")
     assert response.status_code == 400
-    print("✓ Invalid paths (empty)")
+    print("[OK] Invalid paths (empty)")
     
     # TC7: Directory paths
     response = client.get(f"/api/file/{session_id}?filepath=src")
     assert response.status_code == 400
-    print("✓ Directory paths")
+    print("[OK] Directory paths")
 
     # TC8: Directory traversal attempts such as ../../
     response = client.get(f"/api/file/{session_id}?filepath=../outside.txt")
     assert response.status_code == 403
-    print("✓ Directory traversal attempts")
+    print("[OK] Directory traversal attempts")
     
     # TC9: Absolute paths
     # Note: On Windows, passing an absolute path like C:/... to os.path.join(extract_dir, filepath) 
@@ -100,19 +100,19 @@ def test_file_endpoint():
     # Using URL encoding might be needed, but requests handles it if we pass it simply
     response = client.get(f"/api/file/{session_id}", params={"filepath": abs_path})
     assert response.status_code == 403
-    print("✓ Absolute paths")
+    print("[OK] Absolute paths")
     
     # TC10: Binary files
     response = client.get(f"/api/file/{session_id}?filepath=image.png")
     assert response.status_code == 400
     assert "Cannot read binary" in response.json()["detail"]
-    print("✓ Binary files")
+    print("[OK] Binary files")
     
     # TC11: Large text files
     response = client.get(f"/api/file/{session_id}?filepath=large.txt")
     assert response.status_code == 400
     assert "too large" in response.json()["detail"]
-    print("✓ Large text files")
+    print("[OK] Large text files")
     
     print("All tests passed!")
     
