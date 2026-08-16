@@ -4,66 +4,6 @@ import networkx as nx
 from typing import Dict, Any, List
 from .parser_service import process_file_task
 
-def generate_repo_map(files_data: Dict[str, Any], G: nx.DiGraph, extract_dir: str) -> str:
-    blueprint = "### REPOSITORY ARCHITECTURE BLUEPRINT\n\n"
-    
-    # 1. Project Overview (Search for README)
-    overview = "No README found."
-    for path, data in files_data.items():
-        if path.lower() == 'readme.md':
-            try:
-                with open(os.path.join(extract_dir, path), 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read()
-                overview = content[:500] + ("..." if len(content) > 500 else "")
-            except Exception:
-                pass
-            break
-    blueprint += f"#### 1. PROJECT OVERVIEW\n{overview}\n\n"
-    
-    # 2. Architectural Roles
-    roles = {
-        "Entry Points": [],
-        "Routing & Controllers": [],
-        "Data Models & Persistence": [],
-        "Services & Utilities": [],
-        "UI Components": [],
-        "Configuration": [],
-        "Documentation": []
-    }
-    
-    for path, data in files_data.items():
-        role = data.get('role', 'Other')
-        if role in roles:
-            roles[role].append(path)
-            
-    blueprint += "#### 2. ARCHITECTURAL ROLES\n"
-    for role, paths in roles.items():
-        if paths:
-            file_list = ", ".join(paths[:10]) + ("..." if len(paths) > 10 else "")
-            blueprint += f"- **{role}**: {file_list}\n"
-    blueprint += "\n"
-    
-    # 3. Logical Dependency Graph (Top Relationships)
-    blueprint += "#### 3. LOGICAL DEPENDENCY GRAPH (TOP RELATIONSHIPS)\n"
-    edges = list(G.edges())
-    for u, v in edges[:20]:
-        blueprint += f"- `{u}` --> depends on --> `{v}`\n"
-    if len(edges) > 20:
-        blueprint += f"- ... (total {len(edges)} relationships)\n"
-    blueprint += "\n"
-    
-    # 4. Directory Tree
-    blueprint += "#### 4. DIRECTORY TREE\n"
-    dirs = set()
-    for path in files_data.keys():
-        parts = path.split('/')
-        if len(parts) > 1:
-            dirs.add(f"- {parts[0]}/")
-            if len(parts) > 2:
-                dirs.add(f"  - {parts[0]}/{parts[1]}/")
-    blueprint += "\n".join(sorted(list(dirs))[:30])
-    
-    return blueprint
 
 def analyze_directory(extract_dir: str):
     import concurrent.futures
