@@ -120,16 +120,12 @@ export default function DocsPage() {
                       ul: ({node, ...props}) => <ul className="list-disc pl-6 mb-4 space-y-1" {...props} />,
                       ol: ({node, ...props}) => <ol className="list-decimal pl-6 mb-4 space-y-1" {...props} />,
                       li: ({node, ...props}) => <li className="text-on-surface" {...props} />,
-                      code: ({node, inline, className, children, ...props}: any) => {
-                        const match = /language-(\w+)/.exec(className || '')
-                        return !inline ? (
-                          <pre className="bg-[#1e1e1e] text-[#d4d4d4] p-4 rounded-lg overflow-x-auto my-4 text-sm font-mono border border-outline-variant">
-                            <code className={className} {...props}>
-                              {children}
-                            </code>
-                          </pre>
-                        ) : (
-                          <code className="bg-surface-variant text-on-surface px-1.5 py-0.5 rounded text-sm font-mono" {...props}>
+                      pre: ({node, ...props}) => (
+                        <pre className="bg-[#1e1e1e] text-[#d4d4d4] p-4 rounded-lg overflow-x-auto my-4 text-sm font-mono border border-outline-variant [&>code]:bg-transparent [&>code]:text-inherit [&>code]:p-0 [&>code]:rounded-none" {...props} />
+                      ),
+                      code: ({node, className, children, ...props}: any) => {
+                        return (
+                          <code className={`bg-surface-variant text-on-surface px-1.5 py-0.5 rounded text-sm font-mono ${className || ''}`.trim()} {...props}>
                             {children}
                           </code>
                         )
