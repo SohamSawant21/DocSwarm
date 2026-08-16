@@ -21,7 +21,6 @@ MAX_FILE_SIZE = 50 * 1024 * 1024 # 50 MB
 def extract_and_analyze_zip(zip_path: str, extract_dir: str):
     MAX_EXTRACTED_SIZE = 250 * 1024 * 1024 # 250MB limit
     MAX_FILES = 15000
-    MAX_FILE_SIZE = 50 * 1024 * 1024 # 50MB per file max
     total_extracted_size = 0
     file_count = 0
     

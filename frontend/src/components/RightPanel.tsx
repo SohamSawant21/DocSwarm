@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { MarkdownViewer } from "@/components/MarkdownViewer";
 import { endpoints } from "@/lib/api";
 import type { FileData } from "@/types";
 
@@ -60,7 +59,7 @@ export function RightPanel({
         path: selectedNodeId,
         imports: selectedNodeData.imports,
         content: activeFileContent || selectedNodeData.content || "",
-        role: "File" // Fallback role, can be enhanced later
+        role: selectedNodeData.role || "File" // Provided by backend parse analysis
       };
     }
 
@@ -134,9 +133,7 @@ export function RightPanel({
                   }`}>
                     {msg.sender === "ai" ? (
                       <div className="prose-chat">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {msg.text}
-                        </ReactMarkdown>
+                        <MarkdownViewer content={msg.text} />
                       </div>
                     ) : (
                       <p className="text-[14px]">{msg.text}</p>

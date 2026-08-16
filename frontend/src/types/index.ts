@@ -5,6 +5,7 @@ export interface FileData {
   imports: string[];
   icon?: string;
   content: string;
+  role?: string;
 }
 
 export interface FileMap {
