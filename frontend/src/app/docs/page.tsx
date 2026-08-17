@@ -103,7 +103,7 @@ export default function DocsPage() {
                   <div className="h-full flex flex-col items-center justify-center text-primary animate-pulse">
                     <span className="material-symbols-outlined text-[4rem] mb-4 animate-spin">progress_activity</span>
                     <p className="text-on-surface">Analyzing repository and generating documentation...</p>
-                    <p className="text-on-surface-variant text-sm mt-2 max-w-md text-center">This may take a moment depending on the size of your project.</p>
+                    <p className="text-on-surface-variant text-sm mt-2 text-center">This may take a moment depending on the size of your project.</p>
                   </div>
                 )}
 
