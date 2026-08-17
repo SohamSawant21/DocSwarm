@@ -23,6 +23,7 @@ export default function RootLayout({
         <link
           href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
           rel="stylesheet"
+          crossOrigin="anonymous"
         />
       </head>
       <body className={`${inter.variable} ${jetbrains.variable} bg-background text-on-background font-body-md antialiased h-screen flex flex-col selection:bg-primary selection:text-on-primary overflow-hidden`}>

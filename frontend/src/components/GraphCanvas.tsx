@@ -9,8 +9,12 @@ import {
   Position,
   useNodesState,
   useEdgesState,
+  getNodesBounds,
+  getViewportForBounds,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { toPng, toSvg } from "html-to-image";
+import toast from "react-hot-toast";
 import Editor from "@monaco-editor/react";
 import type { UploadResponse, CustomNodeData, GraphNode, GraphEdge } from "@/types";
 import type { ReactFlowInstance } from "@xyflow/react";
@@ -126,6 +130,104 @@ export function GraphCanvas({
   const [edges, setEdges, onEdgesChange] = useEdgesState<GraphEdge>([]);
   const [isSourceModalOpen, setIsSourceModalOpen] = useState(false);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance<GraphNode, GraphEdge> | null>(null);
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+
+  const handleExport = async (format: "png" | "svg") => {
+    if (nodes.length === 0 || !reactFlowInstance) {
+      toast.error("Graph is empty, nothing to export.");
+      return;
+    }
+    setIsExporting(true);
+    try {
+      const nodesBounds = getNodesBounds(nodes);
+      const imageWidth = 1920;
+      const imageHeight = 1080;
+      
+      const targetViewport = getViewportForBounds(
+        nodesBounds,
+        imageWidth,
+        imageHeight,
+        0.5,
+        2.5,
+        0.1
+      );
+
+      // The core export target is the viewport, which natively contains nodes and edges
+      const viewportEl = document.querySelector(".react-flow__viewport") as HTMLElement;
+      if (!viewportEl) {
+        throw new Error("Viewport element not found");
+      }
+
+      // FIX 1: Ensure all SVGs have proper XML namespaces. 
+      // html-to-image uses strict XML serialization internally. Missing xmlns causes SVGs to disappear.
+      const allSvgs = document.querySelectorAll(".react-flow svg");
+      allSvgs.forEach((svg) => {
+        if (!svg.getAttribute("xmlns")) {
+          svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+        }
+      });
+
+      // FIX 2: React Flow places arrowheads (<defs>) in a separate SVG outside the viewport.
+      // If a <path> references a missing <marker> URL, strict XML parsers drop the ENTIRE edge.
+      // We temporarily inject these defs into the viewport before capturing.
+      const directSvgs = Array.from(document.querySelectorAll(".react-flow > svg"));
+      const injectedDefs: HTMLElement[] = [];
+      directSvgs.forEach((svg) => {
+        const clone = svg.cloneNode(true) as HTMLElement;
+        clone.style.position = "absolute";
+        clone.style.width = "0";
+        clone.style.height = "0";
+        viewportEl.appendChild(clone);
+        injectedDefs.push(clone);
+      });
+
+      // FIX 3: React Flow dynamically sets explicit pixel widths (e.g., width: 800px) on the edges SVG based on the screen.
+      // When html-to-image expands the capture canvas to 1920x1080, edges outside 800x600 get clipped/hidden.
+      // We force the edges SVG to expand natively.
+      const edgesSvgs = Array.from(document.querySelectorAll(".react-flow__edges"));
+      const originalEdgeStyles: { el: HTMLElement; w: string; h: string; ov: string }[] = [];
+      edgesSvgs.forEach((svg) => {
+        const el = svg as HTMLElement;
+        originalEdgeStyles.push({ el, w: el.style.width, h: el.style.height, ov: el.style.overflow });
+        el.style.width = "100%";
+        el.style.height = "100%";
+        el.style.overflow = "visible";
+      });
+
+      const exportFunc = format === "png" ? toPng : toSvg;
+      
+      const dataUrl = await exportFunc(viewportEl, {
+        backgroundColor: "#faf8ff",
+        width: imageWidth,
+        height: imageHeight,
+        style: {
+          width: `${imageWidth}px`,
+          height: `${imageHeight}px`,
+          // Overwrite the user's current zoom/pan with the perfectly framed bounds
+          transform: `translate(${targetViewport.x}px, ${targetViewport.y}px) scale(${targetViewport.zoom})`,
+        },
+      });
+
+      // CLEANUP: Restore the DOM to its original state seamlessly
+      injectedDefs.forEach((def) => def.remove());
+      originalEdgeStyles.forEach(({ el, w, h, ov }) => {
+        el.style.width = w;
+        el.style.height = h;
+        el.style.overflow = ov;
+      });
+
+      const a = document.createElement("a");
+      a.setAttribute("download", `architecture-graph.${format}`);
+      a.setAttribute("href", dataUrl);
+      a.click();
+      toast.success(`Exported as ${format.toUpperCase()}!`);
+    } catch (error) {
+      console.error("Export error:", error);
+      toast.error(`Failed to export ${format.toUpperCase()}`);
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const selectedNode = selectedNodeId && data.files[selectedNodeId]
     ? { id: selectedNodeId, ...data.files[selectedNodeId] }
@@ -189,6 +291,24 @@ export function GraphCanvas({
           <p className="font-body-md text-body-md text-on-surface-variant mt-1">
             Exploring dependencies for current context.
           </p>
+        </div>
+        <div className="pointer-events-auto flex items-center gap-3">
+          <button
+            onClick={() => handleExport("png")}
+            disabled={isExporting || nodes.length === 0}
+            className={`flex items-center gap-2 bg-surface-bright border border-outline-variant text-on-surface text-ui-label font-ui-label px-4 py-2 rounded-md transition-colors shadow-sm ${isExporting || nodes.length === 0 ? "opacity-50 cursor-not-allowed" : "hover:bg-surface-variant active:scale-95"}`}
+          >
+            <span className="material-symbols-outlined text-[1rem]">image</span>
+            PNG
+          </button>
+          <button
+            onClick={() => handleExport("svg")}
+            disabled={isExporting || nodes.length === 0}
+            className={`flex items-center gap-2 bg-surface-bright border border-outline-variant text-on-surface text-ui-label font-ui-label px-4 py-2 rounded-md transition-colors shadow-sm ${isExporting || nodes.length === 0 ? "opacity-50 cursor-not-allowed" : "hover:bg-surface-variant active:scale-95"}`}
+          >
+            <span className="material-symbols-outlined text-[1rem]">polyline</span>
+            SVG
+          </button>
         </div>
       </div>
 
