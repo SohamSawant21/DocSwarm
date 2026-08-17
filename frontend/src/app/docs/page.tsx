@@ -84,7 +84,7 @@ export default function DocsPage() {
                   className={`bg-primary text-on-primary px-6 py-2.5 rounded-md font-ui-label text-ui-label transition-all duration-200 flex items-center gap-2 shadow-sm
                     ${isGenerating ? 'opacity-70 cursor-not-allowed' : 'hover:scale-[1.02] active:scale-[0.98] hover:bg-on-primary-fixed-variant'}`}
                 >
-                  <span className={`material-symbols-outlined text-[18px] ${isGenerating ? 'animate-spin' : ''}`}>
+                  <span className={`material-symbols-outlined text-[1.1250rem] ${isGenerating ? 'animate-spin' : ''}`}>
                     {isGenerating ? 'progress_activity' : 'auto_awesome'}
                   </span>
                   {isGenerating ? 'Generating...' : (docsContent ? 'Regenerate Docs' : 'Generate Docs')}
@@ -94,14 +94,14 @@ export default function DocsPage() {
               <div className="flex-1 overflow-y-auto bg-surface-bright rounded-xl border border-outline-variant shadow-sm p-8 markdown-body">
                 {!docsContent && !isGenerating && (
                   <div className="h-full flex flex-col items-center justify-center text-on-surface-variant opacity-70">
-                    <span className="material-symbols-outlined text-[64px] mb-4">description</span>
+                    <span className="material-symbols-outlined text-[4rem] mb-4">description</span>
                     <p>Click "Generate Docs" to create documentation for your repository.</p>
                   </div>
                 )}
                 
                 {isGenerating && !docsContent && (
                   <div className="h-full flex flex-col items-center justify-center text-primary animate-pulse">
-                    <span className="material-symbols-outlined text-[64px] mb-4 animate-spin">progress_activity</span>
+                    <span className="material-symbols-outlined text-[4rem] mb-4 animate-spin">progress_activity</span>
                     <p className="text-on-surface">Analyzing repository and generating documentation...</p>
                     <p className="text-on-surface-variant text-sm mt-2 max-w-md text-center">This may take a moment depending on the size of your project.</p>
                   </div>

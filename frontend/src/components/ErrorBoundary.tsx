@@ -45,7 +45,7 @@ export class ErrorBoundary extends Component<Props, State> {
       return (
         <div className="flex flex-col items-center justify-center p-6 text-center h-full w-full bg-surface">
           <div className="bg-surface-bright border border-surface-variant rounded-xl p-6 shadow-sm w-full max-w-[24rem] flex flex-col items-center">
-            <span className="material-symbols-outlined text-error text-[48px] mb-4">
+            <span className="material-symbols-outlined text-error text-[3rem] mb-4">
               warning
             </span>
             <h2 className="text-lg font-semibold text-on-surface mb-2">
@@ -56,7 +56,7 @@ export class ErrorBoundary extends Component<Props, State> {
             </p>
             {this.state.error && (
               <div className="bg-surface p-3 rounded text-left overflow-auto mb-6 border border-surface-variant max-h-32 w-full">
-                <code className="text-[11px] text-error font-mono break-all">
+                <code className="text-[0.6875rem] text-error font-mono break-all">
                   {this.state.error.message}
                 </code>
               </div>

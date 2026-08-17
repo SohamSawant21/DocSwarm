@@ -33,7 +33,7 @@ function CustomNode({ data }: { data: CustomNodeData }) {
             const Icon = getIconForFile(data.label || "").icon;
             return (
               <Icon
-                size={24}
+                size={18}
                 strokeWidth={1.5}
                 className={data.highlight ? "text-on-primary-fixed" : "text-on-surface"}
               />
@@ -67,7 +67,7 @@ const getLayoutedElements = (nodes: GraphNode[], edges: GraphEdge[], direction =
 
   nodes.forEach((node) => {
     // Setting dimensions based on your custom node to ensure proper spacing
-    dagreGraph.setNode(node.id, { width: 150, height: 80 });
+    dagreGraph.setNode(node.id, { width: 112.5, height: 60 });
   });
 
   edges.forEach((edge) => {
@@ -83,8 +83,8 @@ const getLayoutedElements = (nodes: GraphNode[], edges: GraphEdge[], direction =
       targetPosition: Position.Left,
       sourcePosition: Position.Right,
       position: {
-        x: nodeWithPosition.x - 75, // Center offset (width / 2)
-        y: nodeWithPosition.y - 40, // Center offset (height / 2)
+        x: nodeWithPosition.x - 56.25, // Center offset (width / 2)
+        y: nodeWithPosition.y - 30, // Center offset (height / 2)
       },
     };
   });
@@ -167,7 +167,7 @@ export function GraphCanvas({
       const node = nodes.find((n) => n.id === selectedNodeId);
       if (node && node.position) {
         // Offset centering slightly to account for the right-side metadata panel
-        reactFlowInstance.setCenter(node.position.x + 75, node.position.y + 40, {
+        reactFlowInstance.setCenter(node.position.x + 56.25, node.position.y + 30, {
           zoom: 1.2,
           duration: 800,
         });
@@ -216,7 +216,7 @@ export function GraphCanvas({
                   const Icon = getIconForFile(selectedNode.label || "").icon;
                   return (
                     <Icon
-                      size={20}
+                      size={15}
                       strokeWidth={1.75}
                       className="text-primary"
                     />
@@ -230,7 +230,7 @@ export function GraphCanvas({
                   className="text-on-surface-variant hover:text-on-surface"
                   onClick={() => onSelectNode(null)}
                 >
-                  <span className="material-symbols-outlined text-[18px]">
+                  <span className="material-symbols-outlined text-[1.1250rem]">
                     close
                   </span>
                 </button>
@@ -255,7 +255,7 @@ export function GraphCanvas({
               </div>
               <div className="space-y-4">
                 <div>
-                  <span className="font-ui-label text-ui-label text-outline uppercase tracking-wider text-[10px] block mb-1">
+                  <span className="font-ui-label text-ui-label text-outline uppercase tracking-wider text-[0.6250rem] block mb-1">
                     Dependencies
                   </span>
                   <div className="flex flex-wrap gap-2">
@@ -294,7 +294,7 @@ export function GraphCanvas({
             <div className="bg-surface-bright border border-surface-variant rounded-xl shadow-2xl flex flex-col w-full max-w-5xl h-full max-h-[85vh] overflow-hidden">
               <div className="p-4 border-b border-surface-variant flex justify-between items-center bg-surface shrink-0">
                 <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-primary text-[20px]">
+                  <span className="material-symbols-outlined text-primary text-[1.2500rem]">
                     code
                   </span>
                   <h3 className="font-ui-label text-ui-label text-on-surface truncate">
@@ -305,7 +305,7 @@ export function GraphCanvas({
                   className="text-on-surface-variant hover:text-on-surface"
                   onClick={() => setIsSourceModalOpen(false)}
                 >
-                  <span className="material-symbols-outlined text-[24px]">
+                  <span className="material-symbols-outlined text-[1.5000rem]">
                     close
                   </span>
                 </button>
@@ -321,7 +321,7 @@ export function GraphCanvas({
                     minimap: { enabled: true },
                     scrollBeyondLastLine: false,
                     wordWrap: "on",
-                    fontSize: 14,
+                    fontSize: 11,
                   }}
                 />
               </div>

@@ -10,9 +10,9 @@ export function TopAppBar({ onReset }: { onReset?: () => void }) {
         {onReset && (
           <button
             onClick={onReset}
-            className="mr-2 bg-primary text-on-primary hover:bg-on-primary-fixed-variant hover:scale-105 active:scale-95 transition-all ease-in-out duration-200 px-4 py-1.5 rounded-md font-ui-label text-[13px] flex items-center gap-2 shadow-sm"
+            className="mr-2 bg-primary text-on-primary hover:bg-on-primary-fixed-variant hover:scale-105 active:scale-95 transition-all ease-in-out duration-200 px-4 py-1.5 rounded-md font-ui-label text-[0.8125rem] flex items-center gap-2 shadow-sm"
           >
-            <span className="material-symbols-outlined text-[16px]">upload_file</span>
+            <span className="material-symbols-outlined text-[1rem]">upload_file</span>
             Upload New Repository
           </button>
         )}

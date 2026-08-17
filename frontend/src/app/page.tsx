@@ -93,7 +93,7 @@ export default function Home() {
           <ErrorBoundary sectionName="Upload Experience">
             <div className="flex-1 flex flex-col items-center justify-center bg-surface">
               <div className="p-8 border-2 border-dashed border-outline-variant rounded-xl flex flex-col items-center text-center bg-surface-bright max-w-[32rem] w-full shadow-sm">
-                <span className="material-symbols-outlined text-[48px] text-outline mb-4">
+                <span className="material-symbols-outlined text-[3rem] text-outline mb-4">
                   upload_file
                 </span>
                 <h2 className="font-h2 text-h2 text-on-surface mb-2">
@@ -106,7 +106,7 @@ export default function Home() {
                 <label className={`cursor-pointer bg-primary text-on-primary px-6 py-2 rounded-md font-ui-label text-ui-label transition-all duration-200 ${isUploading ? 'opacity-75 pointer-events-none' : 'hover:scale-[1.02] active:scale-[0.98] hover:bg-on-primary-fixed-variant'}`}>
                   {isUploading ? (
                     <div className="flex items-center gap-2">
-                      <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
+                      <span className="material-symbols-outlined animate-spin text-[1.1250rem]">progress_activity</span>
                       {loadingStep}
                     </div>
                   ) : (

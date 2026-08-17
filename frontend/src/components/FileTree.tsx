@@ -60,11 +60,11 @@ export function FileTree({
   if (!data || !data.file_tree) return null;
 
   return (
-    <div className="w-[300px] bg-surface-bright border-r border-outline-variant flex flex-col shrink-0 overflow-hidden h-full">
+    <div className="w-[18.7500rem] bg-surface-bright border-r border-outline-variant flex flex-col shrink-0 overflow-hidden h-full">
       {/* Header row */}
       <div className="px-4 pt-6 pb-3 flex flex-col gap-3 shrink-0">
         <div className="flex items-center justify-between">
-          <h4 className="font-ui-label text-[12px] uppercase tracking-[0.1em] text-outline">
+          <h4 className="font-ui-label text-[0.7500rem] uppercase tracking-[0.1em] text-outline">
             Workspace
           </h4>
           <div className="flex items-center gap-1">
@@ -73,14 +73,14 @@ export function FileTree({
               className="text-outline hover:text-on-surface transition-colors p-1 rounded hover:bg-surface-variant"
               title="Expand All"
             >
-              <span className="material-symbols-outlined text-[16px]">unfold_more</span>
+              <span className="material-symbols-outlined text-[1rem]">unfold_more</span>
             </button>
             <button
               onClick={collapseAll}
               className="text-outline hover:text-on-surface transition-colors p-1 rounded hover:bg-surface-variant"
               title="Collapse All"
             >
-              <span className="material-symbols-outlined text-[16px]">unfold_less</span>
+              <span className="material-symbols-outlined text-[1rem]">unfold_less</span>
             </button>
             <button
               onClick={() => {
@@ -90,19 +90,19 @@ export function FileTree({
               className={`transition-colors p-1 rounded ${searchOpen ? "bg-surface-variant text-on-surface" : "text-outline hover:text-on-surface hover:bg-surface-variant"}`}
               title="Search files"
             >
-              <span className="material-symbols-outlined text-[16px]">search</span>
+              <span className="material-symbols-outlined text-[1rem]">search</span>
             </button>
           </div>
         </div>
 
         {searchOpen && (
           <div className="flex items-center gap-2 w-full bg-surface-variant rounded-md px-2 py-1.5 border border-outline-variant focus-within:border-primary transition-colors">
-            <span className="material-symbols-outlined text-[14px] text-outline shrink-0">
+            <span className="material-symbols-outlined text-[0.8750rem] text-outline shrink-0">
               search
             </span>
             <input
               autoFocus
-              className="flex-1 bg-transparent border-none outline-none text-[13px] text-on-surface placeholder:text-outline font-body-md"
+              className="flex-1 bg-transparent border-none outline-none text-[0.8125rem] text-on-surface placeholder:text-outline font-body-md"
               placeholder="Filter files..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -112,7 +112,7 @@ export function FileTree({
                 onClick={() => setQuery("")}
                 className="text-outline hover:text-on-surface flex items-center justify-center"
               >
-                <span className="material-symbols-outlined text-[14px]">close</span>
+                <span className="material-symbols-outlined text-[0.8750rem]">close</span>
               </button>
             )}
           </div>
@@ -120,9 +120,9 @@ export function FileTree({
       </div>
 
       {/* File list */}
-      <div className="flex-1 w-full font-body-md text-[14px] pb-2 overflow-hidden">
+      <div className="flex-1 w-full font-body-md text-[0.8750rem] pb-2 overflow-hidden">
         {flatList.length === 0 ? (
-          <p className="text-outline text-[13px] py-4 px-6 italic">No files found.</p>
+          <p className="text-outline text-[0.8125rem] py-4 px-6 italic">No files found.</p>
         ) : (
           <div className="w-full h-full">
             <Virtuoso

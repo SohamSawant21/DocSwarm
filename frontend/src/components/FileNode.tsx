@@ -37,7 +37,7 @@ export const FileNodeRow = React.memo(({
     }
   };
 
-  const paddingLeft = `${level * 12 + 16}px`;
+  const paddingLeft = `${level * 0.75 + 1}rem`;
 
   // Highlight search text
   const renderName = () => {
@@ -63,7 +63,7 @@ export const FileNodeRow = React.memo(({
       <div
         onClick={handleClick}
         style={{ paddingLeft }}
-        className={`flex items-center gap-1.5 cursor-pointer py-[4px] rounded group transition-all duration-100 select-none ${
+        className={`flex items-center gap-1.5 cursor-pointer py-[0.2500rem] rounded group transition-all duration-100 select-none ${
           isSelected
             ? "bg-primary text-on-primary hover:bg-on-primary-fixed-variant"
             : "text-on-surface-variant hover:text-on-surface hover:bg-surface-variant"
@@ -72,7 +72,7 @@ export const FileNodeRow = React.memo(({
       >
         {isFolder ? (
           <div className="flex items-center justify-center w-4 h-4 text-outline hover:text-on-surface transition-colors">
-            {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
           </div>
         ) : (
           <div className="w-4 h-4 flex-shrink-0" />
@@ -81,14 +81,14 @@ export const FileNodeRow = React.memo(({
         {isFolder ? (
           (() => {
             const Icon = getIconForFolder(expanded).icon;
-            return <Icon size={16} className={`flex-shrink-0 ${isSelected ? "text-on-primary" : "text-primary"}`} />;
+            return <Icon size={12} className={`flex-shrink-0 ${isSelected ? "text-on-primary" : "text-primary"}`} />;
           })()
         ) : (
           (() => {
             const Icon = getIconForFile(node.name).icon;
             return (
               <Icon 
-                size={16} 
+                size={12} 
                 className={`flex-shrink-0 ${
                   isSelected ? "text-on-primary" : "text-outline group-hover:text-primary"
                 }`}
@@ -97,7 +97,7 @@ export const FileNodeRow = React.memo(({
           })()
         )}
 
-        <span className="truncate text-[13px] leading-tight">
+        <span className="truncate text-[0.8125rem] leading-tight">
           {renderName()}
         </span>
       </div>
