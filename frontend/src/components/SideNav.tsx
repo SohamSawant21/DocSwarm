@@ -1,8 +1,12 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useStore } from '@/store/useStore';
 
 export function SideNav() {
   const pathname = usePathname();
+  const { graphData } = useStore();
+
+  if (!graphData) return null;
 
   return (
     <nav className="fixed left-0 top-14 flex flex-col justify-between py-6 z-40 h-[calc(100vh-3.5rem)] bg-surface text-sm tracking-wide w-16 hover:w-60 border-r border-outline-variant transition-all duration-300 group overflow-hidden">
