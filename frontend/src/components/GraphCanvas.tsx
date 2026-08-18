@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import dagre from "dagre";
 import {
   ReactFlow,
@@ -20,16 +20,19 @@ import type { UploadResponse, CustomNodeData, GraphNode, GraphEdge } from "@/typ
 import type { ReactFlowInstance } from "@xyflow/react";
 import { getIconForFile } from "@/utils/fileIcons";
 
-function CustomNode({ data }: { data: CustomNodeData }) {
+function CustomNode({ data }: { data: CustomNodeData & { faded?: boolean; searchMatch?: boolean } }) {
+  const isFaded = data.faded;
   return (
-    <>
-      <Handle type="target" position={Position.Left} />
+    <div style={{ opacity: isFaded ? 0.3 : 1, transition: "opacity 0.2s" }}>
+      <Handle type="target" position={Position.Left} className={isFaded ? "opacity-0" : ""} />
 
       <div className="flex flex-col items-center gap-2 cursor-pointer group">
         <div
           className={`w-12 h-12 rounded-full flex items-center justify-center border shadow-sm transition-transform hover:scale-105 ${
             data.highlight
               ? "bg-primary-fixed border-primary shadow-[0_4px_24px_rgba(29,78,216,0.15)] ring-4 ring-primary-fixed-dim ring-opacity-20"
+              : data.searchMatch
+              ? "bg-secondary-container border-secondary shadow-md ring-2 ring-secondary ring-opacity-40"
               : "bg-surface-container border-outline-variant group-hover:border-primary"
           }`}
         >
@@ -39,7 +42,7 @@ function CustomNode({ data }: { data: CustomNodeData }) {
               <Icon
                 size={18}
                 strokeWidth={1.5}
-                className={data.highlight ? "text-on-primary-fixed" : "text-on-surface"}
+                className={data.highlight ? "text-on-primary-fixed" : data.searchMatch ? "text-secondary" : "text-on-surface"}
               />
             );
           })()}
@@ -48,14 +51,16 @@ function CustomNode({ data }: { data: CustomNodeData }) {
           className={`font-ui-label text-ui-label ${
             data.highlight
               ? "text-on-surface font-semibold bg-surface-bright px-2 py-1 rounded"
+              : data.searchMatch
+              ? "text-on-surface font-semibold"
               : "text-on-surface-variant group-hover:text-on-surface"
           }`}
         >
           {data.label}
         </span>
       </div>
-      <Handle type="source" position={Position.Right} />
-    </>
+      <Handle type="source" position={Position.Right} className={isFaded ? "opacity-0" : ""} />
+    </div>
   );
 }
 
@@ -131,6 +136,32 @@ export function GraphCanvas({
   const [isSourceModalOpen, setIsSourceModalOpen] = useState(false);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance<GraphNode, GraphEdge> | null>(null);
   const [isExporting, setIsExporting] = useState<boolean>(false);
+
+  // Filtering State
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedRole, setSelectedRole] = useState("All");
+  const [hideTests, setHideTests] = useState(false);
+
+  const availableRoles = useMemo(() => {
+    if (!data?.files) return [];
+    const roles = new Set<string>();
+    Object.values(data.files).forEach((file) => {
+      if (file.role) roles.add(file.role);
+    });
+    return Array.from(roles).sort();
+  }, [data]);
+
+  const isTestFile = (filepath: string, role?: string) => {
+    if (role && role.toLowerCase().includes("test")) return true;
+    const lowerPath = filepath.toLowerCase();
+    return (
+      lowerPath.includes(".test.") ||
+      lowerPath.includes(".spec.") ||
+      lowerPath.includes("__tests__") ||
+      lowerPath.includes("/test/") ||
+      lowerPath.includes("/tests/")
+    );
+  };
 
   const handleExport = async (format: "png" | "svg") => {
     if (nodes.length === 0 || !reactFlowInstance) {
@@ -259,6 +290,69 @@ export function GraphCanvas({
     }
   }, [data, setNodes, setEdges]);
 
+  // Apply filtering and search
+  useEffect(() => {
+    if (!data?.files) return;
+
+    const query = searchQuery.toLowerCase();
+    const nodeStateMap = new Map<string, { hidden: boolean; faded: boolean; searchMatch: boolean }>();
+
+    Object.keys(data.files).forEach((id) => {
+      const fileData = data.files[id];
+      const isTest = isTestFile(id, fileData.role);
+
+      let isHidden = false;
+      if (hideTests && isTest) isHidden = true;
+      if (selectedRole !== "All" && fileData?.role !== selectedRole) isHidden = true;
+
+      let isSearchMatch = false;
+      let isFaded = false;
+
+      if (!isHidden && query) {
+        if (id.toLowerCase().includes(query) || fileData?.label.toLowerCase().includes(query)) {
+          isSearchMatch = true;
+        } else {
+          isFaded = true;
+        }
+      }
+      nodeStateMap.set(id, { hidden: isHidden, faded: isFaded, searchMatch: isSearchMatch });
+    });
+
+    setNodes((nds) =>
+      nds.map((n) => {
+        const state = nodeStateMap.get(n.id) || { hidden: false, faded: false, searchMatch: false };
+        return {
+          ...n,
+          hidden: state.hidden,
+          data: {
+            ...n.data,
+            faded: state.faded,
+            searchMatch: state.searchMatch,
+          },
+        };
+      })
+    );
+
+    setEdges((eds) =>
+      eds.map((e) => {
+        const sourceState = nodeStateMap.get(e.source);
+        const targetState = nodeStateMap.get(e.target);
+        const isHidden = !!(sourceState?.hidden || targetState?.hidden);
+        const isFaded = !!(sourceState?.faded || targetState?.faded);
+
+        return {
+          ...e,
+          hidden: isHidden,
+          style: {
+            ...e.style,
+            opacity: isFaded ? 0.15 : 1,
+            transition: "opacity 0.2s",
+          },
+        };
+      })
+    );
+  }, [searchQuery, selectedRole, hideTests, data, setNodes, setEdges]);
+
   // Synchronize selection highlight
   useEffect(() => {
     setNodes((nds) =>
@@ -319,6 +413,61 @@ export function GraphCanvas({
             SVG
           </button>
         </div>
+      </div>
+
+      <div className="px-lg pb-4 flex flex-wrap gap-4 z-10 relative pointer-events-none items-center">
+        <div className="pointer-events-auto flex items-center gap-3 bg-surface-bright border border-outline-variant rounded-md px-3 py-1.5 shadow-sm focus-within:border-primary focus-within:ring-1 focus-within:ring-primary transition-all">
+          <span className="material-symbols-outlined text-outline">search</span>
+          <input 
+            type="text" 
+            placeholder="Search files..." 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="bg-transparent border-none outline-none text-ui-label font-ui-label text-on-surface placeholder:text-on-surface-variant w-48"
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery("")} className="text-on-surface-variant hover:text-on-surface flex items-center">
+              <span className="material-symbols-outlined text-[1rem]">close</span>
+            </button>
+          )}
+        </div>
+
+        <div className="pointer-events-auto flex items-center gap-2 bg-surface-bright border border-outline-variant rounded-md px-3 py-1.5 shadow-sm">
+          <span className="material-symbols-outlined text-outline text-[1.125rem]">filter_list</span>
+          <select 
+            value={selectedRole}
+            onChange={(e) => setSelectedRole(e.target.value)}
+            className="bg-transparent border-none outline-none text-ui-label font-ui-label text-on-surface cursor-pointer pr-2"
+          >
+            <option value="All">All Roles</option>
+            {availableRoles.map(role => (
+              <option key={role} value={role}>{role}</option>
+            ))}
+          </select>
+        </div>
+
+        <label className="pointer-events-auto flex items-center gap-2 bg-surface-bright border border-outline-variant rounded-md px-3 py-1.5 shadow-sm cursor-pointer hover:bg-surface-variant transition-colors">
+          <input 
+            type="checkbox" 
+            checked={hideTests}
+            onChange={(e) => setHideTests(e.target.checked)}
+            className="rounded border-outline text-primary focus:ring-primary h-4 w-4 cursor-pointer"
+          />
+          <span className="text-ui-label font-ui-label text-on-surface select-none">Hide Tests</span>
+        </label>
+        
+        {(searchQuery || selectedRole !== "All" || hideTests) && (
+          <button 
+            onClick={() => {
+              setSearchQuery("");
+              setSelectedRole("All");
+              setHideTests(false);
+            }}
+            className="pointer-events-auto text-ui-label font-ui-label text-on-surface-variant hover:text-on-surface hover:underline px-2"
+          >
+            Clear Filters
+          </button>
+        )}
       </div>
 
       <div className="flex-1 relative w-full h-full">
