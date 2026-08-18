@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { TopAppBar } from "@/components/TopAppBar";
-import { SideNav } from "@/components/SideNav";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { endpoints } from "@/lib/api";
 import { useStore } from "@/store/useStore";
@@ -88,8 +87,7 @@ export default function Home() {
     <>
       <TopAppBar />
       <div className="flex-1 flex overflow-hidden relative pt-14">
-        <SideNav />
-        <main className={`flex-1 flex flex-col md:flex-row h-full overflow-hidden ${graphData ? 'ml-16' : ''}`}>
+        <main className="flex-1 flex flex-col md:flex-row h-full overflow-hidden">
           <ErrorBoundary sectionName="Upload Experience">
             <div className="flex-1 flex flex-col items-center justify-center bg-surface">
               <div className="p-8 border-2 border-dashed border-outline-variant rounded-xl flex flex-col items-center text-center bg-surface-bright max-w-[32rem] w-full shadow-sm">
