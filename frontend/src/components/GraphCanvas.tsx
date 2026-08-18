@@ -174,23 +174,32 @@ export function GraphCanvas({
       const injectedDefs: HTMLElement[] = [];
       directSvgs.forEach((svg) => {
         const clone = svg.cloneNode(true) as HTMLElement;
+        // Don't set width/height to 0, or html-to-image might discard it!
         clone.style.position = "absolute";
-        clone.style.width = "0";
-        clone.style.height = "0";
+        clone.style.top = "0";
+        clone.style.left = "0";
+        clone.style.width = "1px";
+        clone.style.height = "1px";
+        // Hide visually but keep in DOM for marker resolution
+        clone.style.opacity = "0"; 
+        clone.style.pointerEvents = "none";
         viewportEl.appendChild(clone);
         injectedDefs.push(clone);
       });
 
       // FIX 3: React Flow dynamically sets explicit pixel widths (e.g., width: 800px) on the edges SVG based on the screen.
       // When html-to-image expands the capture canvas to 1920x1080, edges outside 800x600 get clipped/hidden.
-      // We force the edges SVG to expand natively.
+      // We force the edges SVG to expand natively with explicit pixel values to prevent it from collapsing to 0x0
+      // when its parent (.react-flow__viewport) has no explicit size.
       const edgesSvgs = Array.from(document.querySelectorAll(".react-flow__edges"));
       const originalEdgeStyles: { el: HTMLElement; w: string; h: string; ov: string }[] = [];
       edgesSvgs.forEach((svg) => {
         const el = svg as HTMLElement;
         originalEdgeStyles.push({ el, w: el.style.width, h: el.style.height, ov: el.style.overflow });
-        el.style.width = "100%";
-        el.style.height = "100%";
+        const exactWidth = imageWidth / targetViewport.zoom;
+        const exactHeight = imageHeight / targetViewport.zoom;
+        el.style.width = `${Math.max(exactWidth, nodesBounds.width + Math.abs(nodesBounds.x) + 500)}px`;
+        el.style.height = `${Math.max(exactHeight, nodesBounds.height + Math.abs(nodesBounds.y) + 500)}px`;
         el.style.overflow = "visible";
       });
 
