@@ -73,9 +73,11 @@ def process_file_task(task):
     node_id, filepath = task
     try:
         from services.audit_service import scan_file_content
+        import hashlib
         with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
             
+        file_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
         file_chunks = chunk_file(node_id, content)
         
         imports = []
@@ -87,10 +89,10 @@ def process_file_task(task):
         role = classify_role(filepath, content)
         audit_flags = scan_file_content(filepath, content)
         
-        return node_id, os.path.basename(filepath), file_chunks, imports, role, len(content), audit_flags
+        return node_id, os.path.basename(filepath), file_chunks, imports, role, len(content), audit_flags, file_hash
     except Exception as e:
         print(f"Error processing {filepath}: {e}")
-        return node_id, os.path.basename(filepath), [], [], "Other", 0, {}
+        return node_id, os.path.basename(filepath), [], [], "Other", 0, {}, None
 
 def build_file_tree(file_paths: List[str]) -> List[Dict[str, Any]]:
     tree = {}

@@ -214,23 +214,33 @@ async def process_audit_batch(files_chunk: List[Dict[str, str]]) -> List[Dict[st
         return []
 
 async def run_audit_pipeline(extract_dir: str, files_data: Dict[str, Any]) -> Dict[str, Any]:
+    from utils.cache import get_cached_audit, set_cached_audit
     flagged_files = []
+    final_audit_results = {}
     
     for path, data in files_data.items():
         flags = data.get("audit_flags", {})
+        file_hash = data.get("file_hash")
+        
         if flags.get("is_suspicious"):
+            cached_result = get_cached_audit(file_hash) if file_hash else None
+            if cached_result:
+                cached_result["file_path"] = path
+                final_audit_results[path] = cached_result
+                continue
+                
             filepath = os.path.join(extract_dir, path)
             try:
                 with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
                     content = f.read()
                 if len(content) > 100000:
                     content = content[:100000] + "\n...[TRUNCATED]"
-                flagged_files.append({"path": path, "content": content})
+                flagged_files.append({"path": path, "content": content, "hash": file_hash})
             except Exception:
                 pass
 
     if not flagged_files:
-        return {}
+        return final_audit_results
         
     MAX_CHARS_PER_BATCH = 150000
     batches = []
@@ -253,12 +263,19 @@ async def run_audit_pipeline(extract_dir: str, files_data: Dict[str, Any]) -> Di
     tasks = [process_audit_batch(b) for b in batches]
     batch_results = await asyncio.gather(*tasks, return_exceptions=True)
     
-    final_audit_results = {}
     for res in batch_results:
         if isinstance(res, Exception):
             print(f"Batch failed: {res}")
             continue
         for file_res in res:
-            final_audit_results[file_res["file_path"]] = file_res
+            path = file_res["file_path"]
+            final_audit_results[path] = file_res
+            
+            # Avoid caching error fallbacks
+            is_fallback = any(f.get("issue_type") == "Error" for f in file_res.get("findings", []))
+            
+            file_hash = next((f["hash"] for f in flagged_files if f["path"] == path), None)
+            if file_hash and not is_fallback:
+                set_cached_audit(file_hash, file_res)
             
     return final_audit_results
