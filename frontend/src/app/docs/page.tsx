@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { TopAppBar } from "@/components/TopAppBar";
 import { SideNav } from "@/components/SideNav";
@@ -15,6 +15,8 @@ export default function DocsPage() {
   const { graphData, reset } = useStore();
   const [docsContent, setDocsContent] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const isGeneratingRef = useRef<boolean>(false);
+  const initializedRef = useRef<boolean>(false);
 
   // Auto-fetch docs once on mount
   useEffect(() => {
@@ -22,7 +24,10 @@ export default function DocsPage() {
       toast.error("Session expired or missing. Please upload a repository.");
       router.replace("/");
     } else {
-      generateDocs();
+      if (!initializedRef.current) {
+        initializedRef.current = true;
+        generateDocs();
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -34,8 +39,10 @@ export default function DocsPage() {
 
   const generateDocs = async () => {
     if (!graphData?.session_id) return;
+    if (isGeneratingRef.current) return;
     
     setIsGenerating(true);
+    isGeneratingRef.current = true;
     setDocsContent(null);
     try {
       const response = await fetch(endpoints.generateDocs, {
@@ -58,6 +65,7 @@ export default function DocsPage() {
       console.error(err);
     } finally {
       setIsGenerating(false);
+      isGeneratingRef.current = false;
     }
   };
 
