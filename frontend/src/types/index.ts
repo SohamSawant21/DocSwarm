@@ -1,11 +1,20 @@
 import { Node, Edge } from '@xyflow/react';
 
+export interface AuditFlags {
+  has_secrets: boolean;
+  has_dangerous_functions: boolean;
+  has_high_risk_keywords: boolean;
+  is_suspicious: boolean;
+  details: string[];
+}
+
 export interface FileData {
   label: string;
   imports: string[];
   icon?: string;
   content: string;
   role?: string;
+  audit_flags?: AuditFlags;
 }
 
 export interface FileMap {

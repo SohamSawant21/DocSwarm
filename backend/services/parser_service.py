@@ -72,6 +72,7 @@ def parse_python(file_content: str):
 def process_file_task(task):
     node_id, filepath = task
     try:
+        from services.audit_service import scan_file_content
         with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
             
@@ -84,10 +85,12 @@ def process_file_task(task):
             imports = parse_js_ts(content)
             
         role = classify_role(filepath, content)
-        return node_id, os.path.basename(filepath), file_chunks, imports, role, len(content)
+        audit_flags = scan_file_content(filepath, content)
+        
+        return node_id, os.path.basename(filepath), file_chunks, imports, role, len(content), audit_flags
     except Exception as e:
         print(f"Error processing {filepath}: {e}")
-        return node_id, os.path.basename(filepath), [], [], "Other", 0
+        return node_id, os.path.basename(filepath), [], [], "Other", 0, {}
 
 def build_file_tree(file_paths: List[str]) -> List[Dict[str, Any]]:
     tree = {}

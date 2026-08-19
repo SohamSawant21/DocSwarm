@@ -38,13 +38,14 @@ def analyze_directory(extract_dir: str):
         results = executor.map(process_file_task, file_tasks)
         
     for res in results:
-        node_id, label, file_chunks, imports, role, size = res
+        node_id, label, file_chunks, imports, role, size, audit_flags = res
         all_chunks.extend(file_chunks)
         files_data[node_id] = {
             "label": label,
             "imports": imports,
             "role": role,
-            "size": size
+            "size": size,
+            "audit_flags": audit_flags
         }
         G.add_node(node_id, label=label, type="customNode")
 
