@@ -69,6 +69,29 @@ export default function DocsPage() {
     }
   };
 
+  const handleDownload = () => {
+    if (!docsContent) {
+      toast.error("No documentation available to download.");
+      return;
+    }
+    
+    try {
+      const blob = new Blob([docsContent], { type: "text/markdown;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "README.md";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success("Downloaded README.md successfully!");
+    } catch (err) {
+      console.error("Failed to download documentation:", err);
+      toast.error("Failed to download documentation.");
+    }
+  };
+
   if (!graphData) {
     return null; // Will redirect
   }
@@ -86,17 +109,28 @@ export default function DocsPage() {
                   <h1 className="text-3xl font-display font-bold text-on-surface">Repository Documentation</h1>
                   <p className="text-on-surface-variant mt-2">AI-generated architecture and API reference</p>
                 </div>
-                <button
-                  onClick={generateDocs}
-                  disabled={isGenerating}
-                  className={`bg-primary text-on-primary px-6 py-2.5 rounded-md font-ui-label text-ui-label transition-all duration-200 flex items-center gap-2 shadow-sm
-                    ${isGenerating ? 'opacity-70 cursor-not-allowed' : 'hover:scale-[1.02] active:scale-[0.98] hover:bg-on-primary-fixed-variant'}`}
-                >
-                  <span className={`material-symbols-outlined text-[1.1250rem] ${isGenerating ? 'animate-spin' : ''}`}>
-                    {isGenerating ? 'progress_activity' : 'auto_awesome'}
-                  </span>
-                  {isGenerating ? 'Generating...' : (docsContent ? 'Regenerate Docs' : 'Generate Docs')}
-                </button>
+                <div className="flex items-center gap-3">
+                  {docsContent && (
+                    <button
+                      onClick={handleDownload}
+                      className="bg-surface-container-high text-on-surface px-6 py-2.5 rounded-md font-ui-label text-ui-label transition-all duration-200 flex items-center gap-2 shadow-sm border border-outline-variant hover:scale-[1.02] active:scale-[0.98] hover:bg-surface-container-highest"
+                    >
+                      <span className="material-symbols-outlined text-[1.1250rem]">download</span>
+                      Download README.md
+                    </button>
+                  )}
+                  <button
+                    onClick={generateDocs}
+                    disabled={isGenerating}
+                    className={`bg-primary text-on-primary px-6 py-2.5 rounded-md font-ui-label text-ui-label transition-all duration-200 flex items-center gap-2 shadow-sm
+                      ${isGenerating ? 'opacity-70 cursor-not-allowed' : 'hover:scale-[1.02] active:scale-[0.98] hover:bg-on-primary-fixed-variant'}`}
+                  >
+                    <span className={`material-symbols-outlined text-[1.1250rem] ${isGenerating ? 'animate-spin' : ''}`}>
+                      {isGenerating ? 'progress_activity' : 'auto_awesome'}
+                    </span>
+                    {isGenerating ? 'Generating...' : (docsContent ? 'Regenerate Docs' : 'Generate Docs')}
+                  </button>
+                </div>
               </div>
 
               <div className="flex-1 overflow-y-auto bg-surface-bright rounded-xl border border-outline-variant shadow-sm p-8 markdown-body">
