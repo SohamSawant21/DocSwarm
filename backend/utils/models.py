@@ -15,3 +15,19 @@ class ChatRequest(BaseModel):
 
 class DocsRequest(BaseModel):
     session_id: str
+
+class AuditFinding(BaseModel):
+    issue_type: str
+    severity: str
+    location: str
+    description: str
+    evidence: str
+    remediation: str
+
+class FileAuditResult(BaseModel):
+    file_path: str
+    is_safe: bool
+    findings: list[AuditFinding]
+
+class BatchAuditResponse(BaseModel):
+    results: list[FileAuditResult]
