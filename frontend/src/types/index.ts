@@ -1,5 +1,20 @@
 import { Node, Edge } from '@xyflow/react';
 
+export interface AuditFinding {
+  issue_type: string;
+  severity: 'Critical' | 'High' | 'Medium' | 'Low';
+  location: string;
+  description: string;
+  evidence: string;
+  remediation: string;
+}
+
+export interface FileAuditResult {
+  file_path: string;
+  is_safe: boolean;
+  findings: AuditFinding[];
+}
+
 export interface AuditFlags {
   has_secrets: boolean;
   has_dangerous_functions: boolean;
@@ -48,6 +63,7 @@ export interface UploadResponse {
   graph: GraphDataPayload;
   files: FileMap;
   file_tree: FileTreeNode[];
+  audit_results?: Record<string, FileAuditResult>;
 }
 
 export interface NodeDetail extends FileData {

@@ -101,6 +101,10 @@ async def process_upload_task(task_id: str, session_id: str, tmpdirname: str, ex
             
         session_created = True
         
+        tasks[task_id]["message"] = "Running code audit..."
+        from services.ai_service import run_audit_pipeline
+        audit_results = await run_audit_pipeline(extract_dir, files_data)
+        
         tasks[task_id]["status"] = "completed"
         tasks[task_id]["message"] = "Processing complete"
         tasks[task_id]["result"] = {
@@ -111,7 +115,8 @@ async def process_upload_task(task_id: str, session_id: str, tmpdirname: str, ex
                 "edges": rf_edges,
             },
             "files": files_data,
-            "file_tree": file_tree
+            "file_tree": file_tree,
+            "audit_results": audit_results
         }
     except ValueError as e:
         tasks[task_id]["status"] = "failed"
