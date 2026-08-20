@@ -20,23 +20,38 @@ export default function Dashboard() {
     activeFileContent,
     isFileLoading,
     reset,
-    uploadId
+    uploadId,
+    currentTaskId,
+    isRestoring,
+    restoreSession
   } = useStore();
 
   useEffect(() => {
     if (!graphData) {
-      toast.error("Session expired or missing. Please upload a repository.");
-      router.replace("/");
+      if (currentTaskId && !isRestoring) {
+        restoreSession(currentTaskId).catch(() => {
+          toast.error("Session expired or missing. Please upload a repository.");
+          router.replace("/");
+        });
+      } else if (!currentTaskId && !isRestoring) {
+        toast.error("Session expired or missing. Please upload a repository.");
+        router.replace("/");
+      }
     }
-  }, [graphData, router]);
+  }, [graphData, currentTaskId, isRestoring, restoreSession, router]);
 
   const handleReset = () => {
     reset();
     router.replace("/");
   };
 
-  if (!graphData) {
-    return null; // Will redirect
+  if (isRestoring || !graphData) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center bg-surface h-screen">
+        <span className="material-symbols-outlined animate-spin text-[3rem] text-primary mb-4">progress_activity</span>
+        <h2 className="font-h2 text-h2 text-on-surface">Restoring Session...</h2>
+      </div>
+    );
   }
 
   return (

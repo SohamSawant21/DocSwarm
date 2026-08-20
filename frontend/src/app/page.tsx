@@ -50,7 +50,7 @@ export default function Home() {
 
             if (statusData.status === "completed") {
               clearInterval(pollInterval);
-              setGraphData(statusData.result);
+              setGraphData(statusData.result, data.task_id);
               setIsUploading(false);
               setLoadingStep("");
               incrementUploadId();

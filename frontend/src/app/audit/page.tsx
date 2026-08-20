@@ -80,14 +80,21 @@ function FindingCard({ finding, filePath }: { finding: AuditFinding, filePath: s
 
 export default function AuditDashboard() {
   const router = useRouter();
-  const { graphData, reset } = useStore();
+  const { graphData, reset, currentTaskId, isRestoring, restoreSession } = useStore();
 
   useEffect(() => {
     if (!graphData) {
-      toast.error("Session expired or missing. Please upload a repository.");
-      router.replace("/");
+      if (currentTaskId && !isRestoring) {
+        restoreSession(currentTaskId).catch(() => {
+          toast.error("Session expired or missing. Please upload a repository.");
+          router.replace("/");
+        });
+      } else if (!currentTaskId && !isRestoring) {
+        toast.error("Session expired or missing. Please upload a repository.");
+        router.replace("/");
+      }
     }
-  }, [graphData, router]);
+  }, [graphData, currentTaskId, isRestoring, restoreSession, router]);
 
   const handleReset = () => {
     reset();
@@ -127,7 +134,14 @@ export default function AuditDashboard() {
     return c;
   }, [findings]);
 
-  if (!graphData) return null;
+  if (isRestoring || !graphData) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center bg-surface h-screen">
+        <span className="material-symbols-outlined animate-spin text-[3rem] text-primary mb-4">progress_activity</span>
+        <h2 className="font-h2 text-h2 text-on-surface">Restoring Session...</h2>
+      </div>
+    );
+  }
 
   return (
     <>

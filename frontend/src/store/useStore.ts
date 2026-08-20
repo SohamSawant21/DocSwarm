@@ -9,12 +9,15 @@ interface AppState {
   activeFileContent: string | null;
   isFileLoading: boolean;
   uploadId: number;
+  currentTaskId: string | null;
+  isRestoring: boolean;
 
-  setGraphData: (data: UploadResponse | null) => void;
+  setGraphData: (data: UploadResponse | null, taskId?: string) => void;
   setSelectedNodeId: (id: string | null) => void;
   reset: () => void;
   fetchFileContent: (sessionId: string, filepath: string) => Promise<void>;
   incrementUploadId: () => void;
+  restoreSession: (taskId: string) => Promise<void>;
 }
 
 export const useStore = create<AppState>()(
@@ -25,8 +28,15 @@ export const useStore = create<AppState>()(
       activeFileContent: null,
       isFileLoading: false,
       uploadId: 0,
+      currentTaskId: null,
+      isRestoring: false,
 
-      setGraphData: (data) => set({ graphData: data }),
+      setGraphData: (data, taskId) => {
+        set({ graphData: data });
+        if (taskId) {
+          set({ currentTaskId: taskId });
+        }
+      },
   
   setSelectedNodeId: (id) => {
     set({ selectedNodeId: id });
@@ -43,6 +53,8 @@ export const useStore = create<AppState>()(
     selectedNodeId: null,
     activeFileContent: null,
     isFileLoading: false,
+    currentTaskId: null,
+    isRestoring: false,
     uploadId: state.uploadId + 1
   })),
   
@@ -65,13 +77,32 @@ export const useStore = create<AppState>()(
     } finally {
       set({ isFileLoading: false });
     }
+  },
+
+  restoreSession: async (taskId: string) => {
+    set({ isRestoring: true });
+    try {
+      const res = await fetch(endpoints.status(taskId));
+      if (!res.ok) throw new Error("Failed to get status");
+      const statusData = await res.json();
+      if (statusData.status === "completed" && statusData.result) {
+        set({ graphData: statusData.result });
+      } else {
+        throw new Error("Session expired or not ready");
+      }
+    } catch (err) {
+      set({ currentTaskId: null, graphData: null });
+      throw err;
+    } finally {
+      set({ isRestoring: false });
+    }
   }
     }),
     {
       name: 'docswarm-storage',
       partialize: (state) => ({ 
-        graphData: state.graphData,
-        uploadId: state.uploadId
+        uploadId: state.uploadId,
+        currentTaskId: state.currentTaskId
       }),
     }
   )

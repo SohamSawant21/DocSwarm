@@ -12,17 +12,24 @@ import { MarkdownViewer } from "@/components/MarkdownViewer";
 
 export default function DocsPage() {
   const router = useRouter();
-  const { graphData, reset } = useStore();
+  const { graphData, reset, currentTaskId, isRestoring, restoreSession } = useStore();
   const [docsContent, setDocsContent] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const isGeneratingRef = useRef<boolean>(false);
   const initializedRef = useRef<boolean>(false);
 
-  // Auto-fetch docs once on mount
+  // Auto-fetch docs once on mount or when graphData is restored
   useEffect(() => {
     if (!graphData) {
-      toast.error("Session expired or missing. Please upload a repository.");
-      router.replace("/");
+      if (currentTaskId && !isRestoring) {
+        restoreSession(currentTaskId).catch(() => {
+          toast.error("Session expired or missing. Please upload a repository.");
+          router.replace("/");
+        });
+      } else if (!currentTaskId && !isRestoring) {
+        toast.error("Session expired or missing. Please upload a repository.");
+        router.replace("/");
+      }
     } else {
       if (!initializedRef.current) {
         initializedRef.current = true;
@@ -30,7 +37,7 @@ export default function DocsPage() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [graphData, currentTaskId, isRestoring, restoreSession, router]);
 
   const handleReset = () => {
     reset();
@@ -92,8 +99,13 @@ export default function DocsPage() {
     }
   };
 
-  if (!graphData) {
-    return null; // Will redirect
+  if (isRestoring || !graphData) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center bg-surface h-screen">
+        <span className="material-symbols-outlined animate-spin text-[3rem] text-primary mb-4">progress_activity</span>
+        <h2 className="font-h2 text-h2 text-on-surface">Restoring Session...</h2>
+      </div>
+    );
   }
 
   return (
