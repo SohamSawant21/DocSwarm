@@ -273,22 +273,67 @@ export function GraphCanvas({
     ? { id: selectedNodeId, ...data.files[selectedNodeId] }
     : null;
 
-  useEffect(() => {
-    if (data && data.graph) {
-      const rawNodes = data.graph.nodes || [];
-      const rawEdges = data.graph.edges || [];
+  const MAX_RENDER_NODES = 800;
 
-      // Calculate layout before setting state
-      const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
-        rawNodes,
-        rawEdges,
-        "LR" // Left-to-Right flow. Change to "TB" for Top-to-Bottom.
-      );
+  const { layoutedNodes, layoutedEdges, isLargeGraph } = useMemo(() => {
+    if (!data || !data.graph) return { layoutedNodes: [], layoutedEdges: [], isLargeGraph: false };
+    
+    let renderNodes = data.graph.nodes || [];
+    let renderEdges = data.graph.edges || [];
+    const isLarge = renderNodes.length > MAX_RENDER_NODES;
 
-      setNodes(layoutedNodes);
-      setEdges(layoutedEdges);
+    if (isLarge) {
+      const included = new Set<string>();
+      
+      // 1. Include selected node and its neighbors
+      if (selectedNodeId) {
+        included.add(selectedNodeId);
+        renderEdges.forEach(e => {
+          if (e.source === selectedNodeId) included.add(e.target);
+          if (e.target === selectedNodeId) included.add(e.source);
+        });
+      }
+
+      // 2. Include search matches
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        renderNodes.forEach(n => {
+          if (n.id.toLowerCase().includes(query) || (n.data.label as string).toLowerCase().includes(query)) {
+            included.add(n.id);
+          }
+        });
+      }
+
+      // 3. Fill the rest up to MAX_RENDER_NODES with nodes that have the most edges
+      if (included.size < MAX_RENDER_NODES) {
+        const degreeMap = new Map<string, number>();
+        renderEdges.forEach(e => {
+          degreeMap.set(e.source, (degreeMap.get(e.source) || 0) + 1);
+          degreeMap.set(e.target, (degreeMap.get(e.target) || 0) + 1);
+        });
+        
+        const sortedNodes = [...renderNodes].sort((a, b) => 
+          (degreeMap.get(b.id) || 0) - (degreeMap.get(a.id) || 0)
+        );
+
+        for (const n of sortedNodes) {
+          if (included.size >= MAX_RENDER_NODES) break;
+          included.add(n.id);
+        }
+      }
+
+      renderNodes = renderNodes.filter(n => included.has(n.id));
+      renderEdges = renderEdges.filter(e => included.has(e.source) && included.has(e.target));
     }
-  }, [data, setNodes, setEdges]);
+
+    const { nodes, edges } = getLayoutedElements(renderNodes, renderEdges, "LR");
+    return { layoutedNodes: nodes, layoutedEdges: edges, isLargeGraph: isLarge };
+  }, [data, selectedNodeId, searchQuery]);
+
+  useEffect(() => {
+    setNodes(layoutedNodes);
+    setEdges(layoutedEdges);
+  }, [layoutedNodes, layoutedEdges, setNodes, setEdges]);
 
   // Apply filtering and search
   useEffect(() => {
@@ -394,6 +439,12 @@ export function GraphCanvas({
           <p className="font-body-md text-body-md text-on-surface-variant mt-1">
             Exploring dependencies for current context.
           </p>
+          {isLargeGraph && (
+            <div className="mt-2 flex items-center gap-2 bg-secondary-container/50 text-on-secondary-container px-3 py-1.5 rounded text-sm font-medium border border-secondary/20">
+              <span className="material-symbols-outlined text-[1rem]">info</span>
+              Large repository detected. Rendering contextual neighborhood map (Top {MAX_RENDER_NODES} nodes). Use the File Explorer to explore missing nodes.
+            </div>
+          )}
         </div>
         <div className="pointer-events-auto flex items-center gap-3">
           <button
@@ -478,6 +529,7 @@ export function GraphCanvas({
           onEdgesChange={onEdgesChange}
           nodeTypes={nodeTypes}
           fitView
+          onlyRenderVisibleElements={true}
           onInit={setReactFlowInstance}
           proOptions={{ hideAttribution: true }}
           onNodeClick={handleNodeClick}
