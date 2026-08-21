@@ -8,7 +8,7 @@ import os
 client = TestClient(app)
 
 def test_github_import_valid():
-    response = client.post("/api/import-github", json={"url": "https://github.com/actions/checkout"})
+    response = client.post("/api/import-github", json={"url": "https://github.com/tiangolo/fastapi"})
     assert response.status_code == 200
     data = response.json()
     assert "task_id" in data

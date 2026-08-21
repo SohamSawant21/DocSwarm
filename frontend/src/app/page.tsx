@@ -91,8 +91,15 @@ export default function Home() {
 
   const handleGithubImport = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!githubUrl.trim()) {
+    const url = githubUrl.trim();
+    if (!url) {
       toast.error("Please enter a GitHub URL");
+      return;
+    }
+
+    const githubRegex = /^https:\/\/github\.com\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+\/?$/;
+    if (!githubRegex.test(url)) {
+      toast.error("Please enter a valid GitHub repository URL (e.g., https://github.com/owner/repo)");
       return;
     }
 
@@ -103,7 +110,7 @@ export default function Home() {
       const response = await fetch(endpoints.importGithub, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: githubUrl.trim() }),
+        body: JSON.stringify({ url }),
       });
       const data = await response.json();
       

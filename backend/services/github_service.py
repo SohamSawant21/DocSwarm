@@ -9,13 +9,37 @@ async def download_github_repo(owner: str, repo: str, dest_path: str) -> None:
     Downloads a GitHub repository as a ZIP file.
     Enforces a strict 50 MB streaming abort constraint.
     """
-    url = f"https://github.com/{owner}/{repo}/archive/refs/heads/main.zip"
+    api_url = f"https://api.github.com/repos/{owner}/{repo}"
+    default_branch = "master" # Fallback
     
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
-            async with client.stream("GET", url, timeout=30.0) as response:
+            # 1. Fetch repository metadata to determine the default branch
+            try:
+                meta_response = await client.get(api_url, timeout=10.0)
+                if meta_response.status_code == 404:
+                    raise Exception("Repository not found or is private.")
+                if meta_response.status_code == 403:
+                    raise Exception("GitHub API rate limit exceeded or repository is inaccessible.")
+                
+                if meta_response.status_code == 200:
+                    meta_data = meta_response.json()
+                    default_branch = meta_data.get("default_branch", "master")
+                else:
+                    # Fallback for unexpected non-success codes
+                    default_branch = "master"
+            except Exception as e:
+                if str(e) in ["Repository not found or is private.", "GitHub API rate limit exceeded or repository is inaccessible."]:
+                    raise e
+                # Fallback on network timeout or connection failure during metadata fetch
+                default_branch = "master"
+            
+            # 2. Construct archive URL using the determined branch
+            archive_url = f"https://github.com/{owner}/{repo}/archive/refs/heads/{default_branch}.zip"
+            
+            async with client.stream("GET", archive_url, timeout=30.0) as response:
                 if response.status_code == 404:
-                    raise Exception("GitHub repository not found or is private.")
+                    raise Exception("Repository not found or is private.")
                 response.raise_for_status()
 
                 downloaded_size = 0
