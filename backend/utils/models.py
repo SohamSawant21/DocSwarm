@@ -1,5 +1,18 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Dict, Any
+import re
+
+class GithubImportRequest(BaseModel):
+    url: str
+
+    @field_validator('url')
+    @classmethod
+    def validate_github_url(cls, v: str) -> str:
+        # Strict validation as per requirements
+        pattern = r"^https://github\.com/[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+/?$"
+        if not re.match(pattern, v):
+            raise ValueError("Invalid GitHub repository URL")
+        return v
 
 class CodeChunk:
     def __init__(self, file_path: str, content: str, start_line: int, end_line: int):

@@ -9,7 +9,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
 from typing import Dict, Any
 
 from utils.state import sessions, tasks
-from utils.models import ChatRequest, DocsRequest
+from utils.models import ChatRequest, DocsRequest, GithubImportRequest
 from services.ai_service import call_gemini_async, detect_architectural_intent, client
 from services.docs_service import generate_project_docs
 
@@ -17,6 +17,52 @@ router = APIRouter()
 MAX_FILE_SIZE = 50 * 1024 * 1024 # 50 MB
 
 from services.upload_service import process_upload_task
+from services.github_service import process_github_task
+
+@router.post("/api/import-github")
+async def import_github_repo(request: GithubImportRequest, background_tasks: BackgroundTasks):
+    import re
+    url = request.url
+    
+    # Extract owner and repo
+    # Validation already happened in Pydantic, so we know it matches the regex
+    pattern = r"^https://github\.com/([a-zA-Z0-9_-]+)/([a-zA-Z0-9_.-]+)/?$"
+    match = re.match(pattern, url)
+    if not match:
+        raise HTTPException(status_code=400, detail="Invalid GitHub repository URL")
+    
+    owner, repo = match.groups()
+    
+    try:
+        tmpdirname = tempfile.mkdtemp()
+        zip_path = os.path.join(tmpdirname, "repo.zip")
+        
+        extract_dir = os.path.abspath(os.path.join(tmpdirname, "extracted"))
+        os.makedirs(extract_dir, exist_ok=True)
+        
+        session_id = str(uuid.uuid4())
+        task_id = str(uuid.uuid4())
+        
+        tasks[task_id] = {
+            "status": "processing",
+            "message": "Initializing GitHub import...",
+            "session_id": session_id,
+            "result": None,
+            "error": None,
+            "created_at": time.time()
+        }
+        
+        background_tasks.add_task(process_github_task, task_id, session_id, tmpdirname, extract_dir, zip_path, owner, repo)
+        
+        return {
+            "message": "GitHub import successful, processing started",
+            "task_id": task_id,
+            "session_id": session_id
+        }
+        
+    except Exception as e:
+        print(f"GitHub Import Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to initiate GitHub import processing: {str(e)}")
 
 @router.post("/api/upload")
 async def upload_repo(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
