@@ -2,6 +2,7 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1
 
 export const endpoints = {
   upload: `${API_BASE_URL}/api/upload`,
+  importGithub: `${API_BASE_URL}/api/import-github`,
   chat: `${API_BASE_URL}/api/chat`,
   status: (taskId: string) => `${API_BASE_URL}/api/status/${taskId}`,
   fileContent: (sessionId: string, filepath: string) => 
