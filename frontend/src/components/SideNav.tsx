@@ -38,6 +38,15 @@ export function SideNav() {
             Audit
           </span>
         </Link>
+        <Link
+          href="/cli"
+          className={`flex items-center gap-4 px-4 py-3 border-l-2 w-full whitespace-nowrap overflow-hidden transition-colors ${pathname === '/cli' ? 'border-primary text-primary bg-surface-container' : 'text-on-surface-variant border-transparent hover:text-on-surface hover:bg-surface-variant'}`}
+        >
+          <span className="material-symbols-outlined flex-shrink-0">terminal</span>
+          <span className="opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all duration-200 font-ui-label text-ui-label transform -translate-x-2">
+            CLI / Offline
+          </span>
+        </Link>
       </div>
     </nav>
   );
