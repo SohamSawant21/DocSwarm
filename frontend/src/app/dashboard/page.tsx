@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { TopAppBar } from "@/components/TopAppBar";
 import { SideNav } from "@/components/SideNav";
@@ -25,6 +25,35 @@ export default function Dashboard() {
     isRestoring,
     restoreSession
   } = useStore();
+
+  const [rightPanelWidth, setRightPanelWidth] = useState(400); // Default width
+  const isDragging = useRef(false);
+
+  const handleMouseMove = (e: MouseEvent) => {
+    if (!isDragging.current) return;
+    const newWidth = window.innerWidth - e.clientX;
+    const maxWidth = Math.min(800, window.innerWidth - 300); // Leave at least 300px for main content
+    if (newWidth >= 250 && newWidth <= maxWidth) {
+      setRightPanelWidth(newWidth);
+    }
+  };
+
+  const handleMouseUp = () => {
+    isDragging.current = false;
+    document.removeEventListener("mousemove", handleMouseMove);
+    document.removeEventListener("mouseup", handleMouseUp);
+    document.body.style.cursor = "default";
+    document.body.style.userSelect = "auto";
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    isDragging.current = true;
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
 
   useEffect(() => {
     if (!graphData) {
@@ -80,15 +109,26 @@ export default function Dashboard() {
                 />
               </ErrorBoundary>
             </div>
-            <ErrorBoundary sectionName="Intelligence Panel">
-              <RightPanel 
-                key={uploadId} 
-                sessionId={graphData.session_id}
-                selectedNodeId={selectedNodeId}
-                selectedNodeData={selectedNodeId && graphData ? graphData.files[selectedNodeId] : null}
-                activeFileContent={activeFileContent}
-              />
-            </ErrorBoundary>
+            {/* Draggable Divider (Hidden on mobile) */}
+            <div 
+              onMouseDown={handleMouseDown}
+              className="hidden md:block w-1 cursor-col-resize bg-surface-variant hover:bg-primary transition-colors flex-shrink-0 z-20"
+              title="Drag to resize AI Chat panel"
+            />
+            <div 
+              style={{ '--panel-width': `${rightPanelWidth}px` } as React.CSSProperties} 
+              className="flex-shrink-0 h-full overflow-hidden flex flex-col border-l border-surface-variant bg-surface-bright w-full md:w-[var(--panel-width)]"
+            >
+              <ErrorBoundary sectionName="Intelligence Panel">
+                <RightPanel 
+                  key={uploadId} 
+                  sessionId={graphData.session_id}
+                  selectedNodeId={selectedNodeId}
+                  selectedNodeData={selectedNodeId && graphData ? graphData.files[selectedNodeId] : null}
+                  activeFileContent={activeFileContent}
+                />
+              </ErrorBoundary>
+            </div>
           </ErrorBoundary>
         </main>
       </div>

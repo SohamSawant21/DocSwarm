@@ -92,7 +92,7 @@ export function RightPanel({
   };
 
   return (
-    <div className="w-full md:w-2/5 lg:w-1/3 border-l border-surface-variant bg-surface-bright flex flex-col overflow-hidden h-full">
+    <div className="w-full h-full bg-surface-bright flex flex-col overflow-hidden">
       <div className="flex-1 overflow-y-auto p-6 flex flex-col">
         {messages.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center text-on-surface-variant p-8">
