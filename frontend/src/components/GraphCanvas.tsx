@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import dagre from "dagre";
 import {
   ReactFlow,
@@ -141,6 +141,9 @@ export function GraphCanvas({
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRole, setSelectedRole] = useState("All");
   const [hideTests, setHideTests] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const availableRoles = useMemo(() => {
     if (!data?.files) return [];
@@ -150,6 +153,29 @@ export function GraphCanvas({
     });
     return Array.from(roles).sort();
   }, [data]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      if (containerRef.current) {
+        containerRef.current.requestFullscreen().catch(err => {
+          console.error("Error enabling full-screen mode:", err);
+          toast.error("Failed to enter full-screen mode.");
+        });
+      }
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+  };
 
   const isTestFile = (filepath: string, role?: string) => {
     if (role && role.toLowerCase().includes("test")) return true;
@@ -430,7 +456,10 @@ export function GraphCanvas({
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-surface relative overflow-hidden">
+    <div 
+      ref={containerRef} 
+      className={isFullscreen ? "flex flex-col bg-surface overflow-hidden w-screen h-screen" : "flex-1 flex flex-col bg-surface relative overflow-hidden"}
+    >
       <div className="p-lg flex justify-between items-center z-10 relative pointer-events-none">
         <div className="pointer-events-auto">
           <h1 className="font-h1 text-h1 text-on-surface">
@@ -447,6 +476,16 @@ export function GraphCanvas({
           )}
         </div>
         <div className="pointer-events-auto flex items-center gap-3">
+          <button
+            onClick={toggleFullscreen}
+            className={`flex items-center gap-2 bg-surface-bright border border-outline-variant text-on-surface text-ui-label font-ui-label px-4 py-2 rounded-md transition-colors shadow-sm hover:bg-surface-variant active:scale-95`}
+            title={isFullscreen ? "Exit Full Screen (Esc)" : "Full Screen"}
+          >
+            <span className="material-symbols-outlined text-[1rem]">
+              {isFullscreen ? "fullscreen_exit" : "fullscreen"}
+            </span>
+            {isFullscreen ? "Exit Full Screen" : "Full Screen"}
+          </button>
           <button
             onClick={() => handleExport("png")}
             disabled={isExporting || nodes.length === 0}
