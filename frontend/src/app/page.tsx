@@ -151,18 +151,18 @@ export default function Home() {
                   Import Repository
                 </h2>
                 
-                <div className="flex bg-surface-container rounded-md p-1 mb-6 w-full max-w-xs">
+                <div className="flex items-center justify-center bg-surface-container rounded-md p-1 mb-6 w-full max-w-xs mx-auto">
                   <button
                     onClick={() => setActiveTab('zip')}
                     disabled={isUploading}
-                    className={`flex-1 px-4 py-1.5 rounded text-sm font-medium transition-colors ${activeTab === 'zip' ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'}`}
+                    className={`flex-1 flex justify-center items-center text-center px-4 py-1.5 rounded text-sm font-medium transition-colors ${activeTab === 'zip' ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'}`}
                   >
                     Upload ZIP
                   </button>
                   <button
                     onClick={() => setActiveTab('github')}
                     disabled={isUploading}
-                    className={`flex-1 px-4 py-1.5 rounded text-sm font-medium transition-colors ${activeTab === 'github' ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'}`}
+                    className={`flex-1 flex justify-center items-center text-center px-4 py-1.5 rounded text-sm font-medium transition-colors ${activeTab === 'github' ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'}`}
                   >
                     GitHub URL
                   </button>
